@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 TOKEN_FILE = Path.home() / "Documents/Claude/Projects/PBI 2/fb_token.txt"
+HYROS_KEY_FILE = Path.home() / "Documents/Claude/Projects/PBI 2/hyros_key.txt"
 LOGOS = [HERE / "brand/pbi-logo-reversed.png",
          HERE.parent / "2026-08-12 - Webinar Dashboard/brand/pbi-logo-reversed.png"]
 
@@ -34,7 +35,9 @@ ACCOUNT = "act_1059453438345899"   # JOM4, America/Chicago
 START = "2026-09-17"               # first delivery day of the challenge campaigns
 TZ = ZoneInfo("America/Chicago")
 NAME_FILTER = "September"          # the page classifies further, by name (see groupOf in the template)
-LM_LEAD_FACTOR = 0.75              # mirrors CFG.lmLeadFactor; here it only decides which previews to bake
+# (Meta count, GHL count) per group, mirrors CFG.leadCal; here it only decides which previews to bake
+LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
+LEAD_FACTOR = {g: actual / meta for g, (meta, actual) in LEAD_CAL.items()}
 RETIRED_HASHES = {"5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"}  # PBI/CLAUDE.md
 PREVIEWS_PER_BLOCK = 8             # the page shows 5; spares cover a live re-rank inside Claude
 MIN_SPEND = 20                     # mirrors CFG.minSpend: an ad needs $20 spent to rank as best creative
@@ -45,6 +48,8 @@ WINDSOR_URL = "https://connectors.windsor.ai/facebook"
 MAIN_HOST = "photographybusinessinstitute.com"  # this host shows as a bare path; any other keeps its name
 URL_DAYS = 7                       # trailing days of ad-by-day rows pulled for the landing-page grid
 SITE_URL = "https://gostrategicmarketing-deployment.github.io/pbi-jom4-challenge-d856d9d0ad"
+HYROS_URL = "https://api.hyros.com/v1/api/v1.0/attribution"
+HYROS_GROUP = "dtc"                # the group the page headlines on Hyros (Phil, 2026-09-17)
 
 SKELETON = """<!doctype html>
 <html lang="en">
@@ -268,7 +273,7 @@ def pull_ads(today, full_listing):
         print(f"warning: {len(unmapped)} spending ads have no creative (${sum(a['spend'] for a in unmapped):,.2f}); "
               "they cannot rank as best creative", file=sys.stderr)
 
-    # Same ranking as the page: leads (Lead Magnet at 75%), then cost per lead, then spend;
+    # Same ranking as the page: leads (scaled to GHL per group), then cost per lead, then spend;
     # plus the top by link clicks, which the page backfills with when few ads have leads.
     wanted = set()
     for g in ("lm", "dtc"):
@@ -276,7 +281,7 @@ def pull_ads(today, full_listing):
             block = [a for a in ads if group_of(a["campaign"]) == g and a["spend"] >= MIN_SPEND
                      and a["id"] in creatives and creatives[a["id"]]["f"] == f
                      and creatives[a["id"]]["h"] not in RETIRED_HASHES]
-            factor = LM_LEAD_FACTOR if g == "lm" else 1
+            factor = LEAD_FACTOR.get(g, 1)
 
             def rank(a):
                 adj = a["leads"] * factor
@@ -303,6 +308,123 @@ def pull_ads(today, full_listing):
                 kind = "png" if img[:4] == b"\x89PNG" else "jpeg"
                 thumbs[cid] = f"data:image/{kind};base64," + base64.b64encode(img).decode()
     return ads, creatives, thumbs, ad_days
+
+
+def hyros_key():
+    key = os.environ.get("HYROS_API_KEY")
+    if key:
+        return key.strip()
+    return HYROS_KEY_FILE.read_text().strip() if HYROS_KEY_FILE.exists() else None
+
+
+def hyros_get(params, key):
+    """One /attribution read, with retries. Returns its rows, or None (with a warning).
+
+    Hyros holds a lock on each source id while a request for it is in flight and answers a second
+    one with 400 "Already processing a request for id". Two reads over the same campaigns therefore
+    cannot simply follow one another, so a collision waits and goes again.
+    """
+    args = ["curl", "-s", "-G", HYROS_URL, "--max-time", "60", "-H", f"API-Key: {key}", "-w", "\n%{http_code}"]
+    for k, v in params.items():
+        args += ["--data-urlencode", f"{k}={v}"]
+    detail = "no response"
+    for attempt in range(5):
+        out = subprocess.run(args, capture_output=True, text=True).stdout
+        body, _, status = out.rpartition("\n")
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = {}
+        rows = data.get("result") if isinstance(data, dict) else None
+        if isinstance(rows, list):
+            return rows
+        message = data.get("message") if isinstance(data, dict) else None
+        detail = "; ".join(message) if isinstance(message, list) else str(message or f"HTTP {status}")
+        if "Already processing" in detail or status.startswith("5") or status == "429":
+            time.sleep(20 * (attempt + 1))  # the lock on a day-grouped read outlasts 105 seconds
+            continue
+        break
+    print(f"warning: Hyros read failed ({detail}); the page falls back to Meta's Lead event", file=sys.stderr)
+    return None
+
+
+def pull_hyros(today, rows):
+    """Hyros leads for the headlined group: by day, and by campaign.
+
+    Phil, 2026-09-17: Hyros is the lead count the DTC half of the page leads on, with Meta's Lead
+    event kept beside it. Two reads, both campaign level and last click, because that is the model
+    the account's own screens use:
+
+      * `timeGroupingOption=DAY` gives one bucket per day, in the account's timezone (CT, the page's
+        clock). Its `cost` comes back 0, which is fine: spend has always come from Meta.
+      * the default `SOURCE_LINK` grouping gives one row per campaign, for the campaign table.
+
+    The day bucket de-duplicates a lead that touched two of the campaigns and the campaign rows do
+    not, so the rows can sum a little above the day total (144 against 141 on 2026-09-17). The page
+    says so rather than forcing them to agree.
+
+    The ids are every campaign of the group that delivered in the window, not just the ones running
+    now: /attribution takes an explicit id list, so a campaign that has since been paused would
+    otherwise drop out of its own day with no error at all.
+    """
+    key = hyros_key()
+    if not key:
+        print("warning: no Hyros key (HYROS_API_KEY or the PBI key file); the page falls back to "
+              "Meta's Lead event", file=sys.stderr)
+        return None
+    ids = sorted({r["id"] for r in rows if group_of(r["name"]) == HYROS_GROUP})
+    if not ids:
+        return None
+    base = {
+        "startDate": START,
+        "endDate": today,
+        "attributionModel": "last_click",   # lowercase, as this endpoint wants it
+        "level": "facebook_campaign",
+        "sourceConfiguration": "ALL_SOURCES",  # how the account's own report screens attribute
+        "fields": "leads",
+        "ids": ",".join(ids),
+    }
+    # Campaign rows first: they are the read that never collides. The day-grouped read holds a lock
+    # on every id it touched for minutes afterwards, so it goes last and only once per pull.
+    campaigns = hyros_get(base, key)
+    days = hyros_get({**base, "timeGroupingOption": "DAY"}, key) if campaigns is not None else None
+    if days is None or campaigns is None:
+        return published_hyros(today)
+    return {
+        "group": HYROS_GROUP,
+        "model": "last click",
+        "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"),
+        "days": {r["id"]: float(r.get("leads") or 0) for r in days if isinstance(r.get("id"), str)},
+        "campaigns": {r["id"]: float(r.get("leads") or 0) for r in campaigns if isinstance(r.get("id"), str)},
+    }
+
+
+def published_hyros(today):
+    """The last good Hyros read, from the published site, when this pull's read failed.
+
+    Hyros is one number on a page otherwise built from Meta, and falling back to Meta's own count
+    mid-campaign would step the series at the changeover. Carrying the last read forward keeps the
+    series whole; it arrives with its own pulled_at, which the page prints, and `stale` so the page
+    can say that spend has moved on since. A read from an earlier day is not carried: by then the
+    gap is too wide to label away.
+    """
+    out = subprocess.run(["curl", "-sL", "--max-time", "20", f"{SITE_URL}/hyros.json?cb={int(time.time())}"],
+                         capture_output=True, text=True).stdout
+    try:
+        prev = json.loads(out)
+    except ValueError:
+        prev = None
+    if not isinstance(prev, dict) or prev.get("group") != HYROS_GROUP or not isinstance(prev.get("days"), dict):
+        print("warning: no usable published hyros.json either; the page falls back to Meta's Lead event",
+              file=sys.stderr)
+        return None
+    if not str(prev.get("pulled_at", "")).startswith(today):
+        print(f"warning: the published Hyros read is from before {today}; the page falls back to "
+              "Meta's Lead event", file=sys.stderr)
+        return None
+    print(f"warning: carrying the Hyros read from {prev['pulled_at']} forward", file=sys.stderr)
+    prev["stale"] = True
+    return prev
 
 
 def pull_ad_days(today):
@@ -396,11 +518,12 @@ def pull(full_listing=True):
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
+    hyros = pull_hyros(today, rows)
     ads, creatives, thumbs, (since, ad_days) = pull_ads(today, full_listing)
     url_days = sorted(published_url_days(since) + by_page(ad_days, creatives),
                       key=lambda t: (t["date"], t["page"]))
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
-            "ads": ads, "creatives": creatives, "thumbs": thumbs,
+            "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros,
             "url_days": url_days, "url_pulled_from": since}
 
 
@@ -431,6 +554,8 @@ def main():
         cut = html.index("</style>") + len("</style>")  # title, meta, fonts and CSS belong in <head>
         (site / "index.html").write_text(SKELETON.format(head=html[:cut], body=html[cut:].lstrip()))
         (site / "url_days.json").write_text(json.dumps(snap["url_days"], separators=(",", ":")))
+        if snap.get("hyros"):
+            (site / "hyros.json").write_text(json.dumps(snap["hyros"], separators=(",", ":")))
         (site / "version.json").write_text(json.dumps({"pulled_at": snap["pulled_at"]}))
         (site / "robots.txt").write_text(ROBOTS)
 
@@ -438,6 +563,10 @@ def main():
     leads = sum(r["leads"] for r in snap["rows"])
     print(f"{len(snap['rows'])} campaign-day rows, ${spend:,.2f} spent, {leads:.0f} Meta leads, pulled {snap['pulled_at']}")
     print(f"{len(snap['ads'])} ads with delivery, {len(snap['creatives'])} ads mapped to a format, {len(snap['thumbs'])} previews baked")
+    hy = snap.get("hyros")
+    if hy:
+        print(f"Hyros ({hy['group'].upper()}, {hy['model']}): {sum(hy['days'].values()):.0f} leads over "
+              f"{len(hy['days'])} days, {sum(hy['campaigns'].values()):.0f} over {len(hy['campaigns'])} campaigns")
     pages = sorted({r["page"] for r in snap["url_days"]})
     days = sorted({r["date"] for r in snap["url_days"]})
     unmapped = sum(r["clicks"] for r in snap["url_days"] if r["page"] == "?")

@@ -12,7 +12,12 @@ deploys it to GitHub Pages, then starts its own next run 30 minutes later (GitHu
 reliable on this account, so the cron is only a fallback). The chain stops handing on after
 `CHAIN_UNTIL`. To restart it or pull by hand: Actions, refresh, Run workflow.
 
-Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, and the optional
+DTC leads come from Hyros (campaign level, last click); Lead Magnet leads are Meta's scaled to GHL.
+`hyros.json` deploys beside the page and is read back by the next run, so a failed Hyros read carries
+the last good one forward instead of stepping the series back onto Meta.
+
+Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, `HYROS_API_KEY` (the
+PBI-scoped Hyros key; without it the page falls back to Meta scaled to GHL), and the optional
 `WINDSOR_API_KEY`, which lets the pull read the ads' creative details (format, image hash, post id)
 from Windsor.ai instead of Meta. Every number on the page comes from Meta either way. Nothing
 generated is committed; the page deploys as a Pages artifact.
