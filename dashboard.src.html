@@ -338,7 +338,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Lead Magnet leads are Meta's count × 75%</b>, because Meta counts more Lead Magnet leads than GHL receives. Cost per lead and conv. rate for Lead Magnet, and for all campaigns combined, use that adjusted number; DTC uses Meta's count as is. The adjusted count is rounded down to whole leads, and cost per lead and conv. rate use that whole number. Each day rounds down on its own, so the daily rows can add up to a lead or two less than the total.</li>
       <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. A single ad's Lead Magnet leads keep their decimals (Meta's 3 is 2.25), since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead. The DTC campaigns optimise for Lead.</li>
-      <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 15 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
+      <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 30 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
     </ul>
   </section>
 </main>
@@ -723,7 +723,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     if (mode === "loading") statusText.textContent = "Updating from Meta";
     else if (mode === "checking") statusText.textContent = "Checking for newer numbers";
     else if (state.source === "live") statusText.textContent = "Live from Meta · updated " + at;
-    else if (HOSTED) statusText.textContent = "Pulled from Meta " + at + " · new pull every 15 min";
+    else if (HOSTED) statusText.textContent = "Pulled from Meta " + at + " · new pull every 30 min";
     else statusText.textContent = "Snapshot · pulled " + at;
   }
   // Keep "N min ago" honest on a page left open.
@@ -867,7 +867,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   });
 
   // ---------- GitHub Pages ----------
-  // There the connector is out of reach: GitHub Actions re-pulls Meta every 15 minutes and
+  // There the connector is out of reach: GitHub Actions re-pulls Meta every 30 minutes and
   // publishes version.json beside the page. Pages caches every file for 10 minutes, so the
   // check goes out with a cache-busting query and a newer build reloads under its own URL.
   function checkVersion(manual) {
@@ -883,7 +883,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
           if (!again) { location.replace(location.pathname + "?v=" + encodeURIComponent(v.pulled_at)); return; }
           if (manual) { location.replace(location.pathname + "?v=" + encodeURIComponent(v.pulled_at) + "&r=" + Date.now()); return; }
         }
-        if (manual) say("Already showing the newest pull. GitHub pulls Meta again within 15 minutes.");
+        if (manual) say("Already showing the newest pull. GitHub pulls Meta again within 30 minutes.");
       })
       .catch(function () { if (manual) say("Could not check for newer numbers just now. Try again in a minute."); })
       .then(function () { setStatus("snapshot"); refreshBtn.disabled = false; });

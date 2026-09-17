@@ -7,7 +7,7 @@
 
 The Claude artifact refreshes itself live through the viewer's Meta Ads connector; the baked
 snapshot is only what shows before (or without) that read. The GitHub Pages copy has no
-connector, so its GitHub Actions workflow runs this script every 15 minutes.
+connector, so its GitHub Actions workflow runs this script every 30 minutes.
 """
 import argparse
 import base64
