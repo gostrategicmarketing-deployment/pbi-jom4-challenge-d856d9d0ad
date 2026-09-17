@@ -29,6 +29,9 @@ ACCOUNT = "act_1059453438345899"   # JOM4, America/Chicago
 START = "2026-09-17"               # first delivery day of the challenge campaigns
 TZ = ZoneInfo("America/Chicago")
 NAME_FILTER = "September"          # the page classifies further, by name (see groupOf in the template)
+LM_LEAD_FACTOR = 0.75              # mirrors CFG.lmLeadFactor; here it only decides which previews to bake
+RETIRED_HASHES = {"5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"}  # PBI/CLAUDE.md
+PREVIEWS_PER_BLOCK = 8             # the page shows 5; spares cover a live re-rank inside Claude
 
 SKELETON = """<!doctype html>
 <html lang="en">
@@ -71,6 +74,103 @@ def token():
     return os.environ.get("FB_TOKEN") or TOKEN_FILE.read_text().strip()
 
 
+def paged(url, params):
+    out = []
+    while url:
+        data = graph(url, params)
+        out += data["data"]
+        url = data.get("paging", {}).get("next")
+        params = {}  # the next URL carries every parameter
+    return out
+
+
+def group_of(campaign):
+    if "lead magnet" in campaign.lower() and "september 2026" in campaign.lower():
+        return "lm"
+    if "september dtc" in campaign.lower():
+        return "dtc"
+    return None
+
+
+def pull_ads(today):
+    """Ad-level totals since START, every ad's format, and small previews of the likely winners."""
+    base = f"https://graph.facebook.com/v21.0/{ACCOUNT}"
+    name_filter = {"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}
+    ads = []
+    for r in paged(f"{base}/insights", {
+        "level": "ad",
+        "fields": "ad_id,ad_name,campaign_name,spend,actions",
+        "time_range": json.dumps({"since": START, "until": today}),
+        "filtering": json.dumps([name_filter]),
+        "limit": "500",
+        "access_token": token(),
+    }):
+        acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
+        ads.append({"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"], "spend": float(r["spend"]),
+                    "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)})
+
+    # Format for every ad in these campaigns, not just the ones that have spent, so a live
+    # re-rank inside Claude can still tell an image from a video.
+    creatives = {}
+    listing = []
+    # One listing per group name: the bare "September" filter would also page through every
+    # September 2025 ad in the account.
+    for group_name in ("September 2026 Lead Magnet", "September DTC"):
+        listing += paged(f"{base}/ads", {
+            "fields": "id,creative{id,object_type,video_id,image_hash,effective_object_story_id}",
+            "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": group_name},
+                                     {"field": "ad.effective_status", "operator": "IN", "value":
+                                      ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "ARCHIVED", "PENDING_REVIEW",
+                                       "IN_PROCESS", "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED"]}]),
+            "limit": "50",  # 100 per page trips Meta's "reduce the amount of data" on page two
+            "access_token": token(),
+        })
+    for a in listing:
+        cr = a.get("creative") or {}
+        creatives[a["id"]] = {
+            "f": "video" if cr.get("video_id") or cr.get("object_type") == "VIDEO" else "image",
+            "h": cr.get("image_hash"),
+            "c": cr.get("id"),
+            "p": cr.get("effective_object_story_id"),
+        }
+
+    # Same ranking as the page: leads (Lead Magnet at 75%), then cost per lead, then spend;
+    # plus the top by link clicks, which the page backfills with when few ads have leads.
+    wanted = set()
+    for g in ("lm", "dtc"):
+        for f in ("image", "video"):
+            block = [a for a in ads if group_of(a["campaign"]) == g and a["spend"] > 0
+                     and a["id"] in creatives and creatives[a["id"]]["f"] == f
+                     and creatives[a["id"]]["h"] not in RETIRED_HASHES]
+            factor = LM_LEAD_FACTOR if g == "lm" else 1
+
+            def rank(a):
+                adj = a["leads"] * factor
+                return (-adj, a["spend"] / adj if adj else float("inf"), -a["spend"])
+            picks = sorted(block, key=rank)[:PREVIEWS_PER_BLOCK]
+            picks += sorted(block, key=lambda a: (-a["link_clicks"], -a["spend"]))[:5]
+            wanted |= {creatives[a["id"]]["c"] for a in picks if creatives[a["id"]]["c"]}
+
+    thumbs = {}
+    wanted = sorted(wanted)
+    for i in range(0, len(wanted), 50):
+        data = graph("https://graph.facebook.com/v21.0/", {
+            "ids": ",".join(wanted[i:i + 50]),
+            "fields": "thumbnail_url",
+            "thumbnail_width": "320",
+            "thumbnail_height": "400",
+            "access_token": token(),
+        })
+        for cid, v in data.items():
+            if not v.get("thumbnail_url"):
+                continue
+            img = subprocess.run(["curl", "-sL", "--max-time", "20", v["thumbnail_url"]], capture_output=True).stdout
+            if img[:3] == b"\xff\xd8\xff" or img[:4] == b"\x89PNG":
+                kind = "png" if img[:4] == b"\x89PNG" else "jpeg"
+                thumbs[cid] = f"data:image/{kind};base64," + base64.b64encode(img).decode()
+    return ads, creatives, thumbs
+
+
 def pull():
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     params = {
@@ -98,7 +198,9 @@ def pull():
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
-    return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows}
+    ads, creatives, thumbs = pull_ads(today)
+    return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
+            "ads": ads, "creatives": creatives, "thumbs": thumbs}
 
 
 def build(snapshot):
@@ -119,7 +221,7 @@ def main():
 
     snap = pull()
     (HERE / "data").mkdir(exist_ok=True)
-    (HERE / "data/snapshot.json").write_text(json.dumps(snap, indent=1))
+    (HERE / "data/snapshot.json").write_text(json.dumps({k: v for k, v in snap.items() if k != "thumbs"}, indent=1))
     html = build(snap)
     (HERE / "dashboard.html").write_text(html)
     if args.site:
@@ -133,6 +235,7 @@ def main():
     spend = sum(r["spend"] for r in snap["rows"])
     leads = sum(r["leads"] for r in snap["rows"])
     print(f"{len(snap['rows'])} campaign-day rows, ${spend:,.2f} spent, {leads:.0f} Meta leads, pulled {snap['pulled_at']}")
+    print(f"{len(snap['ads'])} ads with delivery, {len(snap['creatives'])} ads mapped to a format, {len(snap['thumbs'])} previews baked")
 
 
 if __name__ == "__main__":
