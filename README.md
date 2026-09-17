@@ -1,7 +1,11 @@
 # PBI JOM4 challenge dashboard
 
 Meta cost per Lead event for the September 2026 5-Day Challenge ads in the JOM4 ad account:
-Lead Magnet, DTC and all campaigns combined, for today, so far, and day by day.
+Lead Magnet, DTC and all campaigns combined, for today, so far, and day by day, with link clicks
+broken out by landing page.
+
+`url_days.json` is deployed beside the page and read back by the next run: it is where the
+landing-page day grid keeps the days that have dropped out of the window each pull re-reads.
 
 The workflow in `.github/workflows/refresh.yml` pulls Meta with `refresh.py`, builds the page and
 deploys it to GitHub Pages, then starts its own next run 30 minutes later (GitHub's cron is not

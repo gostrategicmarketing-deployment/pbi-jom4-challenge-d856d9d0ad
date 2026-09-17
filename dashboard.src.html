@@ -236,6 +236,11 @@ tfoot td { border-top: 1px solid var(--rule); font-weight: 600; }
 td.cpl { font-weight: 600; }
 .tag { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--accent-ink); letter-spacing: .04em; text-transform: uppercase; }
 .daily-panel .table-wrap { border-top: 1px solid var(--rule); }
+.pages-days { margin-top: 16px; }
+.pages-days .table-wrap { border-top: 1px solid var(--rule); }
+.tbl-cap { margin: 0; padding: 14px 18px 10px; font-size: 14px; font-weight: 600; }
+.tbl-cap span { font-weight: 400; color: var(--ink-3); }
+td.zero { color: var(--ink-3); }
 .group-label { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 td.name { white-space: normal; min-width: 260px; text-align: left; }
 .empty { padding: 18px; color: var(--ink-3); }
@@ -315,6 +320,29 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     </div>
   </section>
 
+  <section id="pages" aria-labelledby="pages-h">
+    <div class="sec-head">
+      <h2 id="pages-h">Landing pages</h2>
+      <p class="sec-note" id="pages-note"></p>
+    </div>
+    <div class="panel table-wrap">
+      <table id="pages-table">
+        <thead><tr><th scope="col">Page</th><th scope="col">Cost per lead</th><th scope="col">Leads</th><th scope="col">Spend</th><th scope="col">Link clicks</th><th scope="col">Cost per click</th><th scope="col">Conv. rate</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="panel pages-days" id="pages-days" hidden>
+      <p class="tbl-cap">Link clicks by day <span id="pages-days-note"></span></p>
+      <div class="table-wrap">
+        <table id="pages-days-table">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <section id="campaigns" aria-labelledby="camp-h">
     <div class="sec-head">
       <h2 id="camp-h">Campaigns included</h2>
@@ -337,6 +365,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
       <li><b>Lead Magnet leads are Meta's count × 75%</b>, because Meta counts more Lead Magnet leads than GHL receives. Cost per lead and conv. rate for Lead Magnet, and for all campaigns combined, use that adjusted number; DTC uses Meta's count as is. The adjusted count is rounded down to whole leads, and cost per lead and conv. rate use that whole number. Each day rounds down on its own, so the daily rows can add up to a lead or two less than the total.</li>
       <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. A single ad's Lead Magnet leads keep their decimals (Meta's 3 is 2.25), since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
+      <li><b>Landing pages</b> splits the same numbers by the page each ad sends people to, taken from the ad's own link. One ad set can point its ads at several pages, so the split is made ad by ad, and the query string (the tracking tags) is ignored. The day grid is from the last pull, not the live read, and keeps every day since Sep 17: each pull re-reads the last week from Meta and carries the older days forward.</li>
       <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead. The DTC campaigns optimise for Lead.</li>
       <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 30 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
     </ul>
@@ -593,6 +622,79 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     });
   }
 
+  // ---------- landing pages ----------
+  // Which page an ad sends people to is baked with the creatives, so this splits the live ad
+  // read as well as the snapshot. The day grid needs ad-by-day rows, which only the pull has,
+  // so it stays on the snapshot and says when that was.
+  function pageLabel(p) { return p === "?" ? "Page not identified" : p; }
+
+  function pageRows() {
+    var by = {};
+    adState.ads.forEach(function (a) {
+      var g = groupOf(a.campaign);
+      if (!g) return;
+      var page = (CREATIVES[a.id] || {}).u || "?";
+      var t = by[g + " " + page] = by[g + " " + page] || { group: g, page: page, spend: 0, leads: 0, metaLeads: 0, clicks: 0 };
+      t.spend += a.spend; t.clicks += a.link_clicks;
+      t.metaLeads += a.leads; t.leads += a.leads * leadFactor(a.campaign);
+    });
+    return Object.keys(by).map(function (k) { return derive(by[k]); })
+      .filter(function (t) { return t.spend > 0 || t.clicks > 0; });
+  }
+
+  function renderPages() {
+    var rows = pageRows(), tbody = document.querySelector("#pages-table tbody");
+    tbody.textContent = "";
+    ["lm", "dtc"].forEach(function (g) {
+      var list = rows.filter(function (t) { return t.group === g; })
+        .sort(function (a, b) { return (b.clicks - a.clicks) || (b.spend - a.spend); });
+      var hr = el("tr"), hd = el("td", "group-label", GROUPS[g]);
+      hd.colSpan = 7; hr.appendChild(hd); tbody.appendChild(hr);
+      if (!list.length) { var er = el("tr"), ed = el("td", "empty", "No delivery yet"); ed.colSpan = 7; er.appendChild(ed); tbody.appendChild(er); }
+      list.forEach(function (t) { var tr = el("tr"); tr.appendChild(el("td", "name", pageLabel(t.page))); metricCells(tr, t); tbody.appendChild(tr); });
+    });
+    document.getElementById("pages-note").textContent = "Since " + dayLabel(CFG.start) + " · by the link on each ad · as of " + timeCT(adState.asOf);
+    renderPageDays();
+  }
+
+  function renderPageDays() {
+    var rows = SNAP.url_days || [], panel = document.getElementById("pages-days");
+    panel.hidden = !rows.length;
+    if (!rows.length) return;
+    var totals = {}, byDay = {};
+    rows.forEach(function (r) {
+      totals[r.page] = (totals[r.page] || 0) + r.clicks;
+      var d = byDay[r.date] = byDay[r.date] || {};
+      d[r.page] = (d[r.page] || 0) + r.clicks;
+    });
+    var pages = Object.keys(totals).filter(function (p) { return totals[p] > 0; })
+      .sort(function (a, b) { return totals[b] - totals[a]; });
+    var table = document.getElementById("pages-days-table");
+    var head = table.querySelector("thead tr"), tbody = table.querySelector("tbody"), tfoot = table.querySelector("tfoot");
+    head.textContent = ""; tbody.textContent = ""; tfoot.textContent = "";
+    head.appendChild(el("th", null, "Day")).scope = "col";
+    pages.forEach(function (p) { head.appendChild(el("th", null, pageLabel(p))).scope = "col"; });
+    head.appendChild(el("th", null, "All pages")).scope = "col";
+    Object.keys(byDay).sort().reverse().forEach(function (date) {
+      var tr = el("tr"), td = el("td", null, dayLabel(date)), day = byDay[date], total = 0;
+      if (date === todayCT()) td.appendChild(el("span", "tag", "partial"));
+      tr.appendChild(td);
+      pages.forEach(function (p) {
+        var v = day[p] || 0; total += v;
+        tr.appendChild(el("td", v ? null : "zero", v ? fInt(v) : "–"));
+      });
+      tr.appendChild(el("td", null, fInt(total)));
+      tbody.appendChild(tr);
+    });
+    var fr = el("tr"), all = 0;
+    fr.appendChild(el("td", null, "Total"));
+    pages.forEach(function (p) { all += totals[p]; fr.appendChild(el("td", null, fInt(totals[p]))); });
+    fr.appendChild(el("td", null, fInt(all)));
+    tfoot.appendChild(fr);
+    document.getElementById("pages-days-note").textContent = "· every day since " + dayLabel(CFG.start) +
+      " · newest day partial · pulled " + timeCT(Date.parse(SNAP.pulled_at));
+  }
+
   // ---------- best creative ----------
   var fLeadsAd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
   var FORMATS = [["image", "Images"], ["video", "Videos"]];
@@ -687,7 +789,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     document.getElementById("best-note").textContent = "Since " + dayLabel(CFG.start) + " · leads, then cost per lead, then spend · as of " + timeCT(adState.asOf);
   }
 
-  function render() { renderToday(); renderSoFar(); renderBest(); renderDaily(); renderCampaigns(); }
+  function render() { renderToday(); renderSoFar(); renderBest(); renderPages(); renderDaily(); renderCampaigns(); }
 
   // ---------- tabs ----------
   var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
@@ -797,7 +899,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       var asOf = (result.cache && result.cache.storedAt) || Date.now();
       if (kind === "ads") {
         adState = { ads: rows.filter(function (r) { return r.spend > 0; }), source: "live", asOf: asOf };
-        renderBest();
+        renderBest(); renderPages();
       } else {
         state = { rows: rows, source: "live", asOf: asOf, through: until };
         render();
