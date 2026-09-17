@@ -8,8 +8,10 @@ deploys it to GitHub Pages, then starts its own next run 30 minutes later (GitHu
 reliable on this account, so the cron is only a fallback). The chain stops handing on after
 `CHAIN_UNTIL`. To restart it or pull by hand: Actions, refresh, Run workflow.
 
-The only credential is the `FB_TOKEN` Actions secret, a read-only Meta token. Nothing generated
-is committed; the page deploys as a Pages artifact.
+Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, and the optional
+`WINDSOR_API_KEY`, which lets the pull read the ads' creative details (format, image hash, post id)
+from Windsor.ai instead of Meta. Every number on the page comes from Meta either way. Nothing
+generated is committed; the page deploys as a Pages artifact.
 
 Canonical source lives in Phil's workspace (`PBI/2026-09-17 - JOM4 Challenge Dashboard/`); copy
 `dashboard.src.html` and `refresh.py` here after editing them and push, which also redeploys.

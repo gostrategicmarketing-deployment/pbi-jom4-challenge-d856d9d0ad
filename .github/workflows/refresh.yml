@@ -58,6 +58,9 @@ jobs:
       - name: Pull Meta and build the site
         env:
           FB_TOKEN: ${{ secrets.FB_TOKEN }}
+          # Optional. When set, ad creative details come from Windsor.ai and save Meta calls;
+          # every number still comes from Meta. Unset, the pull runs on Meta alone.
+          WINDSOR_API_KEY: ${{ secrets.WINDSOR_API_KEY }}
         run: python refresh.py --site _site
 
       - uses: actions/upload-pages-artifact@v3

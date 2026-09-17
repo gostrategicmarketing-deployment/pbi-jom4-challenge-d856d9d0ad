@@ -8,6 +8,10 @@
 The Claude artifact refreshes itself live through the viewer's Meta Ads connector; the baked
 snapshot is only what shows before (or without) that read. The GitHub Pages copy has no
 connector, so its GitHub Actions workflow runs this script every 30 minutes.
+
+Every number comes from the Graph API. With WINDSOR_API_KEY set, the ads' creative details
+(format, image hash, post id) come from Windsor.ai first, which saves Meta calls; without it,
+or if Windsor fails, Meta supplies them as before.
 """
 import argparse
 import base64
@@ -35,6 +39,7 @@ RETIRED_HASHES = {"5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3
 PREVIEWS_PER_BLOCK = 8             # the page shows 5; spares cover a live re-rank inside Claude
 MIN_SPEND = 20                     # mirrors CFG.minSpend: an ad needs $20 spent to rank as best creative
 CREATIVE_FIELDS = "creative{id,object_type,video_id,image_hash,effective_object_story_id}"
+WINDSOR_URL = "https://connectors.windsor.ai/facebook"
 
 SKELETON = """<!doctype html>
 <html lang="en">
@@ -77,6 +82,57 @@ def graph(url, params, fatal=True):
 
 def token():
     return os.environ.get("FB_TOKEN") or TOKEN_FILE.read_text().strip()
+
+
+def windsor_get(params):
+    """One Windsor.ai connector read. Returns its rows, or None (with a warning) on any failure."""
+    args = ["curl", "-s", "-G", WINDSOR_URL, "--max-time", "90", "-w", "\n%{http_code}"]
+    for k, v in {**params, "api_key": os.environ["WINDSOR_API_KEY"]}.items():
+        args += ["--data-urlencode", f"{k}={v}"]
+    out = subprocess.run(args, capture_output=True, text=True).stdout
+    body, _, status = out.rpartition("\n")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        err = data.get("error") if isinstance(data, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else err or f"unreadable response (HTTP {status})"
+        msg = str(msg).replace(os.environ["WINDSOR_API_KEY"], "***")  # a bad-key error echoes the key back
+        print(f"warning: Windsor read failed ({msg}); Meta looks the creatives up instead", file=sys.stderr)
+        return None
+    return data["data"]
+
+
+def windsor_creatives(today, ad_ids):
+    """Format, image hash and post id for the spending ads, from Windsor instead of Meta.
+
+    Only this static metadata comes from Windsor. Its Basic plan serves a repeated query from
+    cache (measured 2026-09-17: the same read 3 minutes later returned the same spend while
+    Meta had moved $6-7 a campaign), so every number on the page stays on the Graph read.
+    An ad's creative never changes, so a cached answer is still right; ads newer than the
+    cache are simply absent and fall through to Meta's by-id read.
+    """
+    if not os.environ.get("WINDSOR_API_KEY"):
+        return {}
+    rows = windsor_get({
+        "date_from": START,
+        "date_to": today,
+        "fields": "account_id,ad_id,creative_id,object_type,image_hash,effective_object_story_id,spend",
+        "select_accounts": ACCOUNT.removeprefix("act_"),
+        "filter": json.dumps([["campaign", "contains", NAME_FILTER], "and", ["spend", "gt", 0]]),
+    })
+    out = {}
+    for r in rows or ():
+        # Windsor's key reaches every connected client account: keep JOM4's ads only, and only
+        # the ones the Graph read says are delivering, so nothing else lands on the public page.
+        if str(r.get("account_id")) != ACCOUNT.removeprefix("act_") or r.get("ad_id") not in ad_ids \
+                or not r.get("creative_id"):
+            continue
+        out[r["ad_id"]] = {"id": r["creative_id"], "object_type": r.get("object_type"),
+                           "image_hash": r.get("image_hash"),
+                           "effective_object_story_id": r.get("effective_object_story_id")}
+    return out
 
 
 def paged(url, params):
@@ -142,10 +198,19 @@ def pull_ads(today, full_listing):
     for a in listing:
         keep(a)
 
-    # Every ad that has spent is then looked up by id. The listing can end early with no error
-    # (2026-09-17 09:33: 312 of ~990 ads came back and 136 spending ads fell out of Best creative),
-    # and by id it is ~6 calls, so the Pages build uses this path alone.
-    missing = sorted({a["id"] for a in ads if a["spend"] > 0 and a["id"] not in creatives})
+    # Windsor next (one call, none against Meta's ad-account limit), when WINDSOR_API_KEY is set.
+    spending = {a["id"] for a in ads if a["spend"] > 0}
+    from_windsor = windsor_creatives(today, spending - creatives.keys())
+    for ad_id, cr in from_windsor.items():
+        keep({"id": ad_id, "creative": cr})
+
+    # Every ad that has spent and is still unmapped is then looked up by id. The listing can end
+    # early with no error (2026-09-17 09:33: 312 of ~990 ads came back and 136 spending ads fell
+    # out of Best creative), and by id it is ~6 calls without Windsor, so the Pages build skips the
+    # listing and relies on Windsor plus this read.
+    missing = sorted(spending - creatives.keys())
+    if os.environ.get("WINDSOR_API_KEY"):
+        print(f"Windsor mapped {len(from_windsor)} ads; Meta looks up {len(missing)}")
     for i in range(0, len(missing), 50):
         chunk = missing[i:i + 50]
         data = graph("https://graph.facebook.com/v21.0/", {"ids": ",".join(chunk), "fields": CREATIVE_FIELDS,
