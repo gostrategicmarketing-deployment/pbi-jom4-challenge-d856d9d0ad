@@ -206,6 +206,7 @@ def pull_ads(today, full_listing):
         acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
         ads.append({"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"], "spend": float(r["spend"]),
                     "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)})
+    ad_days = pull_ad_days(today)
 
     # Format for every ad in these campaigns, not just the ones that have spent, so a live
     # re-rank inside Claude can still tell an image from a video. Only a local build needs it:
@@ -301,20 +302,23 @@ def pull_ads(today, full_listing):
             if img[:3] == b"\xff\xd8\xff" or img[:4] == b"\x89PNG":
                 kind = "png" if img[:4] == b"\x89PNG" else "jpeg"
                 thumbs[cid] = f"data:image/{kind};base64," + base64.b64encode(img).decode()
-    return ads, creatives, thumbs
+    return ads, creatives, thumbs, ad_days
 
 
-def pull_url_days(today, creatives):
-    """Link clicks and spend by landing page and day, over a trailing window.
+def pull_ad_days(today):
+    """Every ad's link clicks and spend day by day, over a trailing window.
 
-    Only ad-by-day rows can split a day by page, because one ad set can send its ads to several
-    pages (the DTC builds from V4 on do). There is one row per ad per day, so the pull is
+    Only ad-by-day rows can split a day by landing page, because one ad set can send its ads to
+    several pages (the DTC builds from V4 on do). There is one row per ad per day, so the pull is
     windowed at URL_DAYS: at a few hundred ads delivering, a fortnight of them would be a dozen
     calls every half hour, and Meta counts this token's app against the ad account by CPU.
     Older days are carried forward from the published site instead (published_url_days).
+
+    It runs straight after the ad totals so the two reads see the same minute: split by page they
+    are the same clicks twice, and the page shows both.
     """
     since = max(START, (datetime.now(TZ).date() - timedelta(days=URL_DAYS - 1)).isoformat())
-    agg = {}
+    rows = []
     for r in paged(f"https://graph.facebook.com/v21.0/{ACCOUNT}/insights", {
         "level": "ad",
         # inline_link_clicks matched the link_click action ad for ad on 2026-09-17 and is far
@@ -326,12 +330,19 @@ def pull_url_days(today, creatives):
         "limit": "500",
         "access_token": token(),
     }):
-        page = (creatives.get(r["ad_id"]) or {}).get("u") or "?"
-        t = agg.setdefault((r["date_start"], page),
-                           {"date": r["date_start"], "page": page, "clicks": 0.0, "spend": 0.0})
-        t["clicks"] += float(r.get("inline_link_clicks") or 0)
-        t["spend"] += float(r["spend"])
-    return since, sorted(agg.values(), key=lambda t: (t["date"], t["page"]))
+        rows.append((r["ad_id"], r["date_start"], float(r.get("inline_link_clicks") or 0), float(r["spend"])))
+    return since, rows
+
+
+def by_page(ad_days, creatives):
+    """Ad-by-day rows folded into one row per landing page per day."""
+    agg = {}
+    for ad_id, date, clicks, spend in ad_days:
+        page = (creatives.get(ad_id) or {}).get("u") or "?"
+        t = agg.setdefault((date, page), {"date": date, "page": page, "clicks": 0.0, "spend": 0.0})
+        t["clicks"] += clicks
+        t["spend"] += spend
+    return sorted(agg.values(), key=lambda t: (t["date"], t["page"]))
 
 
 def published_url_days(before):
@@ -385,9 +396,9 @@ def pull(full_listing=True):
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
-    ads, creatives, thumbs = pull_ads(today, full_listing)
-    since, url_days = pull_url_days(today, creatives)
-    url_days = sorted(published_url_days(since) + url_days, key=lambda t: (t["date"], t["page"]))
+    ads, creatives, thumbs, (since, ad_days) = pull_ads(today, full_listing)
+    url_days = sorted(published_url_days(since) + by_page(ad_days, creatives),
+                      key=lambda t: (t["date"], t["page"]))
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
             "ads": ads, "creatives": creatives, "thumbs": thumbs,
             "url_days": url_days, "url_pulled_from": since}

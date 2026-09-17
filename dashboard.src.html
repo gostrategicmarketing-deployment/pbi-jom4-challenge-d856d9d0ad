@@ -692,7 +692,8 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     fr.appendChild(el("td", null, fInt(all)));
     tfoot.appendChild(fr);
     document.getElementById("pages-days-note").textContent = "· every day since " + dayLabel(CFG.start) +
-      " · newest day partial · pulled " + timeCT(Date.parse(SNAP.pulled_at));
+      " · newest day partial · pulled " + timeCT(Date.parse(SNAP.pulled_at)) +
+      (adState.source === "live" ? ", so the table above is the newer read" : "");
   }
 
   // ---------- best creative ----------
