@@ -1,0 +1,736 @@
+<title>JOM4 Challenge Ads</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Work+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #F2F3F5;
+  --surface: #FFFFFF;
+  --ink: #212121;
+  --ink-2: #505259;
+  --ink-3: #6E7078;
+  --rule: #DADDE3;
+  --rule-soft: #E9EBEF;
+  --band: #212121;
+  --band-ink: #F4F4F6;
+  --band-ink-2: #B9BAC0;
+  --accent: #FF522B;
+  --accent-ink: #B8381A;
+  --hero: #720C3A;
+  --hero-ink: #FFFFFF;
+  --hero-ink-2: #E9C9D6;
+  --hero-rule: #8E2A56;
+  --mark: #E8431B;
+  --good: #1E6F47;
+  --good-bg: #E1F1E8;
+  --warn: #8F4F00;
+  --warn-bg: #FBECD6;
+  --focus: #FF522B;
+  --display: "Playfair Display", "Iowan Old Style", Georgia, serif;
+  --body: "Work Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #131315;
+    --surface: #1D1D20;
+    --ink: #ECECEF;
+    --ink-2: #B7B8BE;
+    --ink-3: #909299;
+    --rule: #34353A;
+    --rule-soft: #28292D;
+    --band: #0B0B0C;
+    --band-ink: #F4F4F6;
+    --band-ink-2: #A3A4AA;
+    --accent-ink: #FF8663;
+    --hero: #5C0B30;
+    --hero-ink: #FFFFFF;
+    --hero-ink-2: #E2BFCD;
+    --hero-rule: #7A2250;
+    --mark: #DE5433;
+    --good: #72D19E;
+    --good-bg: #16301F;
+    --warn: #F0B35C;
+    --warn-bg: #36270F;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #131315;
+  --surface: #1D1D20;
+  --ink: #ECECEF;
+  --ink-2: #B7B8BE;
+  --ink-3: #909299;
+  --rule: #34353A;
+  --rule-soft: #28292D;
+  --band: #0B0B0C;
+  --band-ink: #F4F4F6;
+  --band-ink-2: #A3A4AA;
+  --accent-ink: #FF8663;
+  --hero: #5C0B30;
+  --hero-ink: #FFFFFF;
+  --hero-ink-2: #E2BFCD;
+  --hero-rule: #7A2250;
+  --mark: #DE5433;
+  --good: #72D19E;
+  --good-bg: #16301F;
+  --warn: #F0B35C;
+  --warn-bg: #36270F;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 24px; }
+@media (max-width: 560px) { .wrap { padding-inline: 16px; } }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Masthead */
+.band { background: var(--band); color: var(--band-ink); }
+.band-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; padding-block: 22px; }
+.logo { width: 92px; height: auto; flex: none; }
+.band-title { flex: 1 1 320px; min-width: 0; }
+.eyebrow { margin: 0 0 2px; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.band h1 { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 3.2vw, 30px); line-height: 1.15; }
+.band-sub { margin: 4px 0 0; color: var(--band-ink-2); font-size: 14px; }
+.status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-text { font-size: 13px; color: var(--band-ink-2); display: flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--band-ink-2); flex: none; }
+.dot[data-state="live"] { background: #4FCB8A; }
+.dot[data-state="loading"] { background: var(--accent); animation: pulse 1s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dot[data-state="loading"] { animation: none; } }
+.btn {
+  font: 600 13px/1 var(--body); letter-spacing: .02em;
+  color: var(--band); background: var(--band-ink);
+  border: 0; border-radius: 6px; padding: 10px 14px; cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: #FFFFFF; }
+.btn:disabled { opacity: .45; cursor: default; }
+
+/* Notice */
+.notice {
+  margin: 20px 0 0; padding: 12px 14px; border-radius: 8px;
+  background: var(--warn-bg); color: var(--ink); font-size: 14px;
+  border: 1px solid var(--rule);
+}
+
+/* Sections */
+main { padding-block: 8px 48px; }
+section { margin-top: 36px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 14px; }
+.sec-head h2 { font-family: var(--display); font-weight: 700; font-size: 26px; }
+.sec-note { margin: 0; color: var(--ink-3); font-size: 14px; }
+
+/* So far cards */
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px; display: grid; gap: 16px; align-content: start; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.card h3 { font-size: 13px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.card-sub { margin: 0; font-size: 13px; color: var(--ink-3); }
+.kpi { display: grid; gap: 6px; justify-items: start; }
+.kpi-label { font-size: 13px; color: var(--ink-2); }
+.kpi-value { font-family: var(--display); font-weight: 700; font-size: 44px; line-height: 1; font-variant-numeric: lining-nums tabular-nums; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 999px; }
+.chip[data-tone="good"] { color: var(--good); background: var(--good-bg); }
+.chip[data-tone="warn"] { color: var(--warn); background: var(--warn-bg); }
+.chip[data-tone="none"] { color: var(--ink-2); background: var(--rule-soft); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px 16px; margin: 0; padding-top: 16px; border-top: 1px solid var(--rule-soft); }
+.metrics div { min-width: 0; }
+.metrics dt { font-size: 12px; color: var(--ink-3); }
+.metrics dd { margin: 2px 0 0; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* The combined card spans the row; on Today it is also the burgundy hero */
+.card.wide { grid-column: 1 / -1; grid-template-columns: minmax(200px, 1fr) minmax(0, 2.2fr); align-items: center; column-gap: 32px; }
+.card.wide .card-head { grid-column: 1 / -1; }
+.card.wide .kpi-value { font-size: 52px; }
+.card.wide .metrics { grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); border-top: 0; padding-top: 0; border-left: 1px solid var(--rule-soft); padding-left: 32px; }
+.card.hero { background: var(--hero); border-color: var(--hero); color: var(--hero-ink); }
+.card.hero .card-sub, .card.hero .kpi-label, .card.hero .metrics dt { color: var(--hero-ink-2); }
+.card.hero .kpi-value { font-size: 60px; }
+.card.hero .metrics { border-left-color: var(--hero-rule); }
+.card.hero .chip { background: rgba(255,255,255,.14); color: var(--hero-ink); }
+.card-note { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--ink-3); }
+.card.hero .card-note { color: var(--hero-ink-2); }
+.chart-note { margin: 0 0 4px; font-size: 12px; color: var(--ink-3); }
+@media (max-width: 760px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .card.wide { grid-template-columns: minmax(0, 1fr); }
+  .card.wide .kpi-value, .card.hero .kpi-value { font-size: 48px; }
+  .card.wide .metrics { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule-soft); padding-top: 16px; }
+  .card.hero .metrics { border-top-color: var(--hero-rule); }
+}
+
+/* Tabs */
+.tabs { display: inline-flex; background: var(--rule-soft); border-radius: 8px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.tab { font: 500 13px/1 var(--body); color: var(--ink-2); background: transparent; border: 0; border-radius: 6px; padding: 9px 12px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+/* Chart */
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+.chart-fig { margin: 0; padding: 16px 18px 8px; position: relative; }
+.chart-fig figcaption { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.chart-fig figcaption span { font-weight: 400; color: var(--ink-3); }
+#chart { display: block; width: 100%; height: 220px; }
+#chart .grid { stroke: var(--rule-soft); stroke-width: 1; }
+#chart .axis { stroke: var(--rule); stroke-width: 1; }
+#chart .tick { fill: var(--ink-3); font: 11px var(--body); font-variant-numeric: tabular-nums; }
+#chart .bar { fill: var(--mark); }
+#chart .bar.dim { opacity: .45; }
+#chart .target { stroke: var(--ink-2); stroke-width: 1.5; stroke-dasharray: 5 4; }
+#chart .target-label { fill: var(--ink-2); font: 600 11px var(--body); }
+#chart .value-label { fill: var(--ink); font: 600 12px var(--body); font-variant-numeric: tabular-nums; }
+#chart .nolead { fill: var(--ink-3); font: 11px var(--body); }
+#chart .hit { fill: transparent; cursor: default; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-size: 12px; line-height: 1.45; padding: 8px 10px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); z-index: 2; }
+.tip b { font-weight: 600; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 10px 14px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-size: 12px; font-weight: 600; color: var(--ink-3); border-bottom: 1px solid var(--rule); background: var(--surface); }
+tbody td { border-bottom: 1px solid var(--rule-soft); }
+tbody tr:last-child td { border-bottom: 0; }
+tfoot td { border-top: 1px solid var(--rule); font-weight: 600; }
+td.cpl { font-weight: 600; }
+.tag { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--accent-ink); letter-spacing: .04em; text-transform: uppercase; }
+.daily-panel .table-wrap { border-top: 1px solid var(--rule); }
+.group-label { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+td.name { white-space: normal; min-width: 260px; text-align: left; }
+.empty { padding: 18px; color: var(--ink-3); }
+
+/* Method */
+.method { color: var(--ink-2); font-size: 14px; }
+.method h2 { font-family: var(--display); font-size: 20px; color: var(--ink); margin-bottom: 8px; }
+.method ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 78ch; }
+.method b { color: var(--ink); font-weight: 600; }
+</style>
+
+<header class="band">
+  <div class="wrap band-inner">
+    <img class="logo" src="{{LOGO}}" alt="Photography Business Institute">
+    <div class="band-title">
+      <p class="eyebrow">JOM4 · Meta ads</p>
+      <h1>5-Day Challenge: Portrait Client Fill-Up</h1>
+      <p class="band-sub">Challenge Sep 28 to Oct 2 · registration ads since Thu, Sep 17</p>
+    </div>
+    <div class="status">
+      <span class="status-text"><span class="dot" id="status-dot"></span><span id="status-text">Loading</span></span>
+      <button class="btn" id="refresh" type="button" disabled>Refresh</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="notice" id="notice" role="status" hidden></p>
+
+  <section id="today" aria-labelledby="today-h">
+    <div class="sec-head">
+      <h2 id="today-h">Today</h2>
+      <p class="sec-note" id="today-range"></p>
+    </div>
+    <div class="cards" id="today-cards"></div>
+  </section>
+
+  <section id="sofar" aria-labelledby="sofar-h">
+    <div class="sec-head">
+      <h2 id="sofar-h">So far</h2>
+      <p class="sec-note" id="sofar-range"></p>
+    </div>
+    <div class="cards" id="sofar-cards"></div>
+  </section>
+
+  <section id="daily" aria-labelledby="daily-h">
+    <div class="sec-head">
+      <h2 id="daily-h">Daily</h2>
+      <div class="tabs" role="tablist" aria-label="Campaign group">
+        <button class="tab" role="tab" id="tab-all" data-group="all" aria-selected="true" type="button">All campaigns</button>
+        <button class="tab" role="tab" id="tab-lm" data-group="lm" aria-selected="false" type="button">Lead Magnet</button>
+        <button class="tab" role="tab" id="tab-dtc" data-group="dtc" aria-selected="false" type="button">DTC</button>
+      </div>
+    </div>
+    <div class="panel daily-panel">
+      <figure class="chart-fig">
+        <figcaption>Cost per lead by day <span id="chart-group">· All campaigns</span></figcaption>
+        <p class="chart-note" id="chart-note" hidden></p>
+        <svg id="chart" role="img" aria-label="Cost per lead by day"></svg>
+        <div class="tip" id="tip" hidden></div>
+      </figure>
+      <div class="table-wrap">
+        <table id="daily-table">
+          <thead><tr><th scope="col">Day</th><th scope="col">Cost per lead</th><th scope="col">Leads</th><th scope="col">Spend</th><th scope="col">Link clicks</th><th scope="col">Cost per click</th><th scope="col">Conv. rate</th></tr></thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="campaigns" aria-labelledby="camp-h">
+    <div class="sec-head">
+      <h2 id="camp-h">Campaigns included</h2>
+      <p class="sec-note">So far, by campaign</p>
+    </div>
+    <div class="panel table-wrap">
+      <table id="camp-table">
+        <thead><tr><th scope="col">Campaign</th><th scope="col">Cost per lead</th><th scope="col">Leads</th><th scope="col">Spend</th><th scope="col">Link clicks</th><th scope="col">Cost per click</th><th scope="col">Conv. rate</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="method" aria-labelledby="method-h">
+    <h2 id="method-h">How these numbers work</h2>
+    <ul>
+      <li><b>Leads</b> are Meta's Lead standard event from the funnel pixel, as Meta attributes it under each ad set's attribution setting. <b>Cost per lead</b> is spend divided by leads, against PBI's $15 cold cost-per-lead target.</li>
+      <li><b>Link clicks</b> only, never all clicks. <b>Cost per click</b> is spend divided by link clicks; <b>conv. rate</b> is leads divided by link clicks.</li>
+      <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
+      <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
+      <li><b>Lead Magnet leads are Meta's count × 75%</b>, because Meta counts more Lead Magnet leads than GHL receives. Cost per lead and conv. rate for Lead Magnet, and for all campaigns combined, use that adjusted number; DTC uses Meta's count as is. The adjusted count is rounded down to whole leads, and cost per lead and conv. rate use that whole number. Each day rounds down on its own, so the daily rows can add up to a lead or two less than the total.</li>
+      <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead. The DTC campaigns optimise for Lead.</li>
+      <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 30 minutes and Refresh loads the newest pull. The time of the pull you are looking at is always in the header.</li>
+    </ul>
+  </section>
+</main>
+
+<script id="snapshot" type="application/json">{{SNAPSHOT}}</script>
+<script>
+(function () {
+  "use strict";
+
+  var CFG = {
+    account: "1059453438345899",
+    start: "2026-09-17",
+    tz: "America/Chicago",
+    target: 15,
+    lmLeadFactor: 0.75,
+    server: "Meta Ads",
+    tool: "ads_get_ad_entities",
+    conversationId: "PbiJom4ChallengeDsh1",
+    refetchMs: 5 * 60 * 1000
+  };
+  var GROUPS = { all: "All campaigns", lm: "Lead Magnet", dtc: "DTC" };
+  var HOSTED = /\.github\.io$/.test(location.hostname);
+
+  function groupOf(name) {
+    if (/lead magnet/i.test(name) && /september 2026/i.test(name)) return "lm";
+    if (/september dtc/i.test(name)) return "dtc";
+    return null;
+  }
+
+  // ---------- formatting ----------
+  var money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  var int = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  function fMoney(v) { return v == null ? "–" : money.format(v); }
+  function fInt(v) { return int.format(v); }
+  function fPct(v) { return v == null ? "–" : (v * 100).toFixed(1) + "%"; }
+  function ymdParts(ymd) { var p = ymd.split("-"); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
+  var dayFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  var shortFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "numeric", day: "numeric" });
+  function dayLabel(ymd) { return dayFmt.format(ymdParts(ymd)); }
+  function todayCT() { return new Intl.DateTimeFormat("en-CA", { timeZone: CFG.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+  function timeCT(ms) {
+    var t = new Intl.DateTimeFormat("en-US", { timeZone: CFG.tz, hour: "numeric", minute: "2-digit" }).format(new Date(ms)) + " CT";
+    var d = new Intl.DateTimeFormat("en-CA", { timeZone: CFG.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+    return d === todayCT() ? t : dayLabel(d) + ", " + t;
+  }
+  function daysBetween(a, b) {
+    var out = [], d = ymdParts(a), end = ymdParts(b);
+    while (d <= end) { out.push(d.toISOString().slice(0, 10)); d = new Date(d.getTime() + 86400000); }
+    return out;
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  // ---------- data ----------
+  var SNAP = JSON.parse(document.getElementById("snapshot").textContent);
+  function snapshotState() {
+    var ms = Date.parse(SNAP.pulled_at);
+    var through = new Intl.DateTimeFormat("en-CA", { timeZone: CFG.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+    return { rows: SNAP.rows, source: "snapshot", asOf: ms, through: through };
+  }
+  var state = snapshotState();
+  var group = "all";
+  try { var saved = localStorage.getItem("jom4-challenge-tab"); if (saved && GROUPS[saved]) group = saved; } catch (e) {}
+
+  function inGroup(r, key) { var g = groupOf(r.name); return g && (key === "all" || g === key); }
+  function derive(t) {
+    t.leads = Math.floor(t.leads + 1e-9); // whole leads only: 37 x 75% = 27.75 reads as GHL's 27
+    t.cpl = t.leads ? t.spend / t.leads : null;
+    t.cpc = t.clicks ? t.spend / t.clicks : null;
+    t.cvr = t.clicks ? t.leads / t.clicks : null;
+    return t;
+  }
+  // Meta over-counts Lead Magnet leads against GHL; Phil's ratio (2026-09-17) is 75%. DTC stays at Meta's count.
+  function leadFactor(name) { return groupOf(name) === "lm" ? CFG.lmLeadFactor : 1; }
+  function sum(rows) {
+    var t = { spend: 0, leads: 0, metaLeads: 0, clicks: 0, campaigns: {} };
+    rows.forEach(function (r) {
+      t.spend += r.spend; t.clicks += r.link_clicks;
+      t.metaLeads += r.leads; t.leads += r.leads * leadFactor(r.name);
+      if (r.spend > 0) t.campaigns[r.id] = 1;
+    });
+    t.nCampaigns = Object.keys(t.campaigns).length;
+    return derive(t);
+  }
+  function scoped(key) { return state.rows.filter(function (r) { return inGroup(r, key) && r.date >= CFG.start && r.date <= state.through; }); }
+
+  // ---------- render ----------
+  function chipFor(cpl) {
+    if (cpl == null) return { tone: "none", text: "No leads yet" };
+    if (cpl <= CFG.target) return { tone: "good", text: "✓ At or under $15 target" };
+    return { tone: "warn", text: "▲ Over $15 target" };
+  }
+
+  function renderCards(containerId, rowsFor, allClass) {
+    var wrap = document.getElementById(containerId);
+    wrap.textContent = "";
+    ["all", "lm", "dtc"].forEach(function (key) {
+      var t = sum(rowsFor(key));
+      var card = el("article", "card" + (key === "all" ? " " + allClass : ""));
+      var head = el("div", "card-head");
+      head.appendChild(el("h3", null, GROUPS[key]));
+      head.appendChild(el("p", "card-sub", t.nCampaigns + (t.nCampaigns === 1 ? " campaign" : " campaigns")));
+      card.appendChild(head);
+      var kpi = el("div", "kpi");
+      kpi.appendChild(el("span", "kpi-label", "Cost per lead"));
+      kpi.appendChild(el("span", "kpi-value", fMoney(t.cpl)));
+      var c = chipFor(t.cpl), chip = el("span", "chip", c.text);
+      chip.setAttribute("data-tone", c.tone);
+      kpi.appendChild(chip);
+      card.appendChild(kpi);
+      var dl = el("dl", "metrics");
+      [["Leads", fInt(t.leads)], ["Spend", fMoney(t.spend)], ["Link clicks", fInt(t.clicks)], ["Cost per click", fMoney(t.cpc)], ["Conv. rate", fPct(t.cvr)]].forEach(function (m) {
+        var d = el("div"); d.appendChild(el("dt", null, m[0])); d.appendChild(el("dd", null, m[1])); dl.appendChild(d);
+      });
+      card.appendChild(dl);
+      if (key === "lm") card.appendChild(el("p", "card-note", "Leads are Meta's " + fInt(t.metaLeads) + " × 75%, to match GHL."));
+      if (key === "all") card.appendChild(el("p", "card-note", "Lead Magnet leads counted at 75% of Meta's number (GHL); DTC at Meta's number."));
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderToday() {
+    var isToday = state.through === todayCT();
+    document.getElementById("today-h").textContent = isToday ? "Today" : "Latest day";
+    document.getElementById("today-range").textContent = dayLabel(state.through) + " · partial, as of " + timeCT(state.asOf) +
+      (isToday ? "" : " (today's numbers load once Meta is read live)");
+    renderCards("today-cards", function (key) { return scoped(key).filter(function (r) { return r.date === state.through; }); }, "wide hero");
+  }
+
+  function renderSoFar() {
+    document.getElementById("sofar-range").textContent = "Since " + dayLabel(CFG.start) + " · through " + dayLabel(state.through) + " (partial day)";
+    renderCards("sofar-cards", scoped, "wide");
+  }
+
+  function dailySeries(key) {
+    var rows = scoped(key), byDay = {};
+    rows.forEach(function (r) { (byDay[r.date] = byDay[r.date] || []).push(r); });
+    return daysBetween(CFG.start, state.through).map(function (d) { var t = sum(byDay[d] || []); t.date = d; return t; });
+  }
+
+  function metricCells(tr, t) {
+    [[fMoney(t.cpl), "cpl"], [fInt(t.leads)], [fMoney(t.spend)], [fInt(t.clicks)], [fMoney(t.cpc)], [fPct(t.cvr)]].forEach(function (c) {
+      tr.appendChild(el("td", c[1] || null, c[0]));
+    });
+  }
+
+  function renderDaily() {
+    var series = dailySeries(group);
+    var tbody = document.querySelector("#daily-table tbody"), tfoot = document.querySelector("#daily-table tfoot");
+    tbody.textContent = ""; tfoot.textContent = "";
+    series.slice().reverse().forEach(function (t) {
+      var tr = el("tr"), td = el("td", null, dayLabel(t.date));
+      if (t.date === state.through) td.appendChild(el("span", "tag", "partial"));
+      tr.appendChild(td); metricCells(tr, t); tbody.appendChild(tr);
+    });
+    var total = sum(scoped(group)), fr = el("tr");
+    fr.appendChild(el("td", null, "Total")); metricCells(fr, total); tfoot.appendChild(fr);
+    document.getElementById("chart-group").textContent = "· " + GROUPS[group];
+    var note = document.getElementById("chart-note");
+    note.textContent = group === "lm" ? "Leads are Meta's number × 75%, to match GHL." : group === "all" ? "Lead Magnet leads counted at 75% of Meta's number (GHL); DTC at Meta's number." : "";
+    note.hidden = !note.textContent;
+    renderChart(series);
+  }
+
+  function niceStep(max) {
+    var raw = max / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  }
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function s(tag, attrs, text) { var e = document.createElementNS(SVGNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+
+  function renderChart(series) {
+    var svg = document.getElementById("chart"), tip = document.getElementById("tip");
+    svg.textContent = ""; tip.hidden = true;
+    var W = Math.max(280, svg.clientWidth || 600), H = 220, m = { t: 22, r: 14, b: 26, l: 46 };
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var maxV = Math.max(CFG.target * 1.3, Math.max.apply(null, series.map(function (t) { return t.cpl || 0; })) * 1.15);
+    var step = niceStep(maxV), top = Math.ceil(maxV / step) * step;
+    function y(v) { return m.t + ph - (v / top) * ph; }
+    for (var v = 0; v <= top + 1e-9; v += step) {
+      svg.appendChild(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), "class": v === 0 ? "axis" : "grid" }));
+      svg.appendChild(s("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end", "class": "tick" }, "$" + (step < 1 ? v.toFixed(2) : Math.round(v))));
+    }
+    var n = series.length, band = pw / n, bw = Math.min(44, Math.max(4, band * 0.62));
+    var every = Math.ceil(n / Math.max(1, Math.floor(pw / 52)));
+    series.forEach(function (t, i) {
+      var cx = m.l + band * i + band / 2, last = i === n - 1;
+      if (t.cpl != null) {
+        var yt = y(t.cpl), y0 = y(0), x0 = cx - bw / 2, r = Math.min(4, bw / 2, y0 - yt);
+        var d = "M" + x0 + "," + y0 + "V" + (yt + r) + "Q" + x0 + "," + yt + " " + (x0 + r) + "," + yt + "H" + (x0 + bw - r) + "Q" + (x0 + bw) + "," + yt + " " + (x0 + bw) + "," + (yt + r) + "V" + y0 + "Z";
+        svg.appendChild(s("path", { d: d, "class": "bar" }));
+        if (last) svg.appendChild(s("text", { x: cx, y: yt - 6, "text-anchor": "middle", "class": "value-label" }, fMoney(t.cpl)));
+      } else if (t.spend > 0) {
+        svg.appendChild(s("text", { x: cx, y: y(0) - 6, "text-anchor": "middle", "class": "nolead" }, "0 leads"));
+      }
+      if (i % every === 0 || last) svg.appendChild(s("text", { x: cx, y: H - 8, "text-anchor": "middle", "class": "tick" }, shortFmt.format(ymdParts(t.date))));
+      var hit = s("rect", { x: m.l + band * i, y: m.t, width: band, height: ph, "class": "hit" });
+      hit.addEventListener("pointerenter", function () { showTip(t, cx, t.cpl != null ? y(t.cpl) : y(0), W); });
+      hit.addEventListener("pointerleave", function () { tip.hidden = true; });
+      svg.appendChild(hit);
+    });
+    var ty = y(CFG.target);
+    svg.appendChild(s("line", { x1: m.l, x2: W - m.r, y1: ty, y2: ty, "class": "target" }));
+    svg.appendChild(s("text", { x: W - m.r, y: ty - 6, "text-anchor": "end", "class": "target-label" }, "$15 target"));
+  }
+
+  function showTip(t, cx, cy, W) {
+    var svg = document.getElementById("chart"), tip = document.getElementById("tip");
+    var scale = svg.clientWidth / W;
+    tip.textContent = "";
+    tip.appendChild(el("b", null, dayLabel(t.date) + (t.date === state.through ? " (partial)" : "")));
+    [["Cost per lead", fMoney(t.cpl)], ["Leads", fInt(t.leads)], ["Spend", fMoney(t.spend)]].forEach(function (p) {
+      tip.appendChild(document.createElement("br"));
+      tip.appendChild(document.createTextNode(p[0] + ": " + p[1]));
+    });
+    tip.hidden = false;
+    var left = svg.offsetLeft + cx * scale, half = tip.offsetWidth / 2, fig = svg.parentNode.clientWidth;
+    tip.style.left = Math.min(Math.max(left, half + 4), fig - half - 4) + "px";
+    tip.style.top = (svg.offsetTop + Math.max(cy * scale, 60)) + "px";
+  }
+
+  function renderCampaigns() {
+    var byId = {};
+    state.rows.forEach(function (r) {
+      if (!inGroup(r, "all") || r.date < CFG.start || r.date > state.through) return;
+      (byId[r.id] = byId[r.id] || { name: r.name, rows: [] }).rows.push(r);
+    });
+    var tbody = document.querySelector("#camp-table tbody");
+    tbody.textContent = "";
+    ["lm", "dtc"].forEach(function (g) {
+      var list = Object.keys(byId).map(function (id) { var c = byId[id]; var t = sum(c.rows); t.name = c.name; return t; })
+        .filter(function (t) { return groupOf(t.name) === g; })
+        .sort(function (a, b) { return b.spend - a.spend; });
+      var hr = el("tr"), hd = el("td", "group-label", GROUPS[g]);
+      hd.colSpan = 7; hr.appendChild(hd); tbody.appendChild(hr);
+      if (!list.length) { var er = el("tr"), ed = el("td", "empty", "No delivery yet"); ed.colSpan = 7; er.appendChild(ed); tbody.appendChild(er); }
+      list.forEach(function (t) { var tr = el("tr"); tr.appendChild(el("td", "name", t.name)); metricCells(tr, t); tbody.appendChild(tr); });
+    });
+  }
+
+  function render() { renderToday(); renderSoFar(); renderDaily(); renderCampaigns(); }
+
+  // ---------- tabs ----------
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  function selectTab(key) {
+    group = key;
+    tabs.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.group === key)); b.tabIndex = b.dataset.group === key ? 0 : -1; });
+    try { localStorage.setItem("jom4-challenge-tab", key); } catch (e) {}
+    renderDaily();
+  }
+  tabs.forEach(function (b, i) {
+    b.addEventListener("click", function () { selectTab(b.dataset.group); });
+    b.addEventListener("keydown", function (ev) {
+      if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
+      var next = tabs[(i + (ev.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus(); selectTab(next.dataset.group);
+    });
+  });
+
+  var resizeQueued = false;
+  window.addEventListener("resize", function () {
+    if (resizeQueued) return; resizeQueued = true;
+    requestAnimationFrame(function () { resizeQueued = false; renderChart(dailySeries(group)); });
+  });
+
+  // ---------- status ----------
+  var dot = document.getElementById("status-dot"), statusText = document.getElementById("status-text");
+  var notice = document.getElementById("notice"), refreshBtn = document.getElementById("refresh");
+  function setStatus(mode) {
+    dot.setAttribute("data-state", mode);
+    if (mode === "loading") statusText.textContent = "Updating from Meta";
+    else if (mode === "checking") statusText.textContent = "Checking for newer numbers";
+    else if (state.source === "live") statusText.textContent = "Live from Meta · updated " + timeCT(state.asOf);
+    else if (HOSTED) statusText.textContent = "Pulled from Meta " + timeCT(state.asOf) + " · refreshes every 30 min";
+    else statusText.textContent = "Snapshot · pulled " + timeCT(state.asOf);
+  }
+  function say(msg) { notice.textContent = msg || ""; notice.hidden = !msg; }
+
+  selectTab(group);
+  render();
+  setStatus("snapshot");
+
+  // ---------- live ----------
+  var mcp = null, unsub = null, watchedUntil = null, stopped = false;
+
+  function buildInput(until, cursor) {
+    var input = {
+      ad_account_id: CFG.account,
+      level: "campaign",
+      fields: ["id", "name", "amount_spent", "link_click", "lead"],
+      filtering: [{ field: "campaign.name", operator: "CONTAIN", value: ["September"] }],
+      time_range: JSON.stringify({ since: CFG.start, until: until }),
+      time_increment: "1",
+      limit: 1000,
+      include_additional_context: false,
+      client_conversation_id: CFG.conversationId,
+      advertiser_request: "for JOM4 build a dashboard for the challenge that is taking place. Use the lead standard event cost in Meta as your main metric. Include link clicks, cost per click, conversion rate and spend."
+    };
+    if (cursor) input.cursor = cursor;
+    return input;
+  }
+
+  function bad(msg) { var e = new Error(msg); e.code = "unreadable"; return e; }
+  function num(v) {
+    if (v == null || v === "") return 0;
+    var n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+    return isFinite(n) ? n : 0;
+  }
+  function parsePayload(p) {
+    if (typeof p === "string") p = JSON.parse(p);
+    if (!p || typeof p !== "object") throw bad("Meta's answer could not be read.");
+    var list = p.ad_entities;
+    if (typeof list === "string") list = JSON.parse(list);
+    if (!Array.isArray(list)) throw bad("Meta's answer had no campaign rows.");
+    var rows = list.map(function (e) {
+      return { date: e.date_start, id: String(e.id), name: String(e.name || ""), spend: num(e.amount_spent), link_clicks: num(e.link_click), leads: num(e.lead) };
+    });
+    if (rows.some(function (r) { return !/^\d{4}-\d{2}-\d{2}$/.test(r.date || ""); })) throw bad("Meta's answer had rows without a day.");
+    var next = (p.pagination && p.pagination.next_cursor) || p.next_cursor || null;
+    return { rows: rows, next: next };
+  }
+
+  function rowsFromResult(result, until) {
+    var first = parsePayload(result.payload);
+    var rows = first.rows, cursor = first.next, pages = 0;
+    function more() {
+      if (!cursor || pages++ >= 10) return Promise.resolve(rows);
+      return mcp.callTool(CFG.server, CFG.tool, buildInput(until, cursor), { cache: { staleTime: 60000, gcTime: 3600000 } })
+        .then(function (r) { var p = parsePayload(r.payload); rows = rows.concat(p.rows); cursor = p.next; return more(); });
+    }
+    return more();
+  }
+
+  function onData(result, until) {
+    return rowsFromResult(result, until).then(function (rows) {
+      if (stopped) return;
+      state = { rows: rows, source: "live", asOf: (result.cache && result.cache.storedAt) || Date.now(), through: until };
+      render();
+      say("");
+      setStatus(result.cache && result.cache.revalidating ? "loading" : "live");
+    }).catch(onError);
+  }
+
+  var RETRACT = { needs_reauth: 1, server_not_connected: 1, selection_required: 1, blocked_by_policy: 1, approval_required: 1, not_in_manifest: 1, consent_required: 1 };
+  function onError(err) {
+    var code = (err && err.code) || "upstream_error";
+    if (code === "user_changed") { stopped = true; if (unsub) unsub(); return; }
+    if (RETRACT[code] && state.source === "live") { state = snapshotState(); render(); }
+    var keep = state.source === "live" ? "Showing the last live numbers." : "Showing the snapshot.";
+    var msg;
+    switch (code) {
+      case "needs_reauth": msg = "Meta Ads needs reconnecting: reconnect it in claude.ai Settings, Connectors, then press Refresh. " + keep; break;
+      case "server_not_connected": msg = "Live numbers need the Meta Ads connector: add it in claude.ai Settings, Connectors. " + keep; break;
+      case "selection_required": msg = "More than one Meta Ads connector is connected: choose one when Claude asks, then press Refresh. " + keep; break;
+      case "not_in_manifest": case "consent_required": msg = "Meta Ads access is off for this page. Press Refresh to be asked again. " + keep; break;
+      case "blocked_by_policy": case "approval_required": msg = "Your organization's policy blocks Meta Ads on this page. " + keep; break;
+      case "server_unavailable": case "rate_limited": msg = "Meta did not answer just now; the next refresh will try again. " + keep; break;
+      case "tool_error": msg = "Meta returned an error: " + (err.message || "no detail") + ". " + keep; break;
+      case "unreadable": msg = err.message + " " + keep; break;
+      case "not_granted": case "capability_disabled": case "capability_removed":
+        mcp = null; if (unsub) unsub(); refreshBtn.disabled = true;
+        msg = "Live refresh is not available in this view. " + keep; break;
+      default: msg = "Live refresh failed (" + code + "). " + keep;
+    }
+    say(msg);
+    setStatus(state.source === "live" ? "live" : "snapshot");
+  }
+
+  function startWatch() {
+    var until = todayCT();
+    if (unsub) unsub();
+    watchedUntil = until;
+    setStatus("loading");
+    unsub = mcp.watchTool(CFG.server, CFG.tool, buildInput(until), function (ev) {
+      if (ev.type === "error") onError(ev.error); else onData(ev.result, until);
+    }, { cache: { staleTime: 60000, gcTime: 6 * 3600000 }, refetchInterval: CFG.refetchMs });
+  }
+
+  function manualRefresh() {
+    if (!mcp) return;
+    var until = todayCT();
+    if (until !== watchedUntil) { startWatch(); return; }
+    setStatus("loading");
+    refreshBtn.disabled = true;
+    function call() { return mcp.callTool(CFG.server, CFG.tool, buildInput(until), { cache: { staleTime: 60000, gcTime: 6 * 3600000, refresh: true } }); }
+    call().catch(function (err) {
+      if (!err || !err.retryable) throw err;
+      var wait = err.retryAfterMs != null ? err.retryAfterMs : 1000 + Math.random() * 1500;
+      return new Promise(function (res) { setTimeout(res, wait); }).then(call);
+    }).then(function (r) { return onData(r, until); }, onError)
+      .then(function () { if (mcp) refreshBtn.disabled = false; });
+  }
+  refreshBtn.addEventListener("click", function () { if (mcp) manualRefresh(); else checkVersion(true); });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && mcp && todayCT() !== watchedUntil) startWatch();
+  });
+
+  // ---------- GitHub Pages ----------
+  // There the connector is out of reach: GitHub Actions re-pulls Meta every 30 minutes and
+  // publishes version.json beside the page. Pages caches every file for 10 minutes, so the
+  // check goes out with a cache-busting query and a newer build reloads under its own URL.
+  function checkVersion(manual) {
+    if (!HOSTED) return;
+    if (manual) { setStatus("checking"); refreshBtn.disabled = true; }
+    fetch("version.json?cb=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (v) {
+        if (v && v.pulled_at && Date.parse(v.pulled_at) > Date.parse(SNAP.pulled_at)) {
+          location.replace(location.pathname + "?v=" + encodeURIComponent(v.pulled_at));
+          return;
+        }
+        if (manual) say("Already showing the newest pull. GitHub pulls Meta again within 30 minutes.");
+      })
+      .catch(function () { if (manual) say("Could not check for newer numbers just now. Try again in a minute."); })
+      .then(function () { setStatus("snapshot"); refreshBtn.disabled = false; });
+  }
+
+  if (HOSTED) {
+    refreshBtn.disabled = false;
+    refreshBtn.title = "Load the newest pull from Meta";
+    checkVersion(false);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) checkVersion(false); });
+  } else if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("mcp").then(function (ns) {
+      if (!ns) { refreshBtn.title = "Live refresh works when this page is open in Claude with the Meta Ads connector."; return; }
+      mcp = ns;
+      refreshBtn.disabled = false;
+      startWatch();
+    }, function () {});
+  } else {
+    refreshBtn.title = "Live refresh works when this page is open in Claude with the Meta Ads connector.";
+  }
+})();
+</script>

@@ -1,0 +1,123 @@
+name: refresh
+
+# Pull Meta, rebuild the JOM4 challenge dashboard, deploy it to GitHub Pages, then start the
+# next run thirty minutes on. The Meta token lives only in the FB_TOKEN Actions secret
+# (read-only system user token) and reaches refresh.py as an environment variable.
+#
+# The schedule is the chain at the foot of this job, not the cron. GitHub's scheduler sheds
+# runs on this account's free public repos (measured on the PBI webinar dashboard, 2026-08-27:
+# ten-hour holes, and one cron that never fired at all). `workflow_dispatch` and `push` fire
+# every time, so each run dispatches its successor and the cron is only a way back in.
+
+on:
+  schedule:
+    - cron: "12,42 * * * *"
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: Start the next run 30 minutes after this one
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write # dispatch the next link of the chain
+
+# One refresh at a time. GitHub keeps only the newest pending run per group, which stops
+# converging triggers from forking into parallel chains.
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+env:
+  # The chain stops handing on after this day (America/Chicago). The ads are scheduled
+  # through 2026-10-08; press Run workflow to pull by hand after the stop.
+  CHAIN_UNTIL: "2026-10-15"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Mark the start
+        run: echo "RUN_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pull Meta and build the site
+        env:
+          FB_TOKEN: ${{ secrets.FB_TOKEN }}
+        run: python refresh.py --site _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      # Pages answers 503 during GitHub incidents; the data is already built, so retry the
+      # deploy rather than throw the run away.
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+        with:
+          timeout: 900000
+          error_count: 30
+
+      - name: Wait before retrying the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 90
+
+      - id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 900000
+          error_count: 30
+
+      - name: Hold until the half hour is up
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.chain) }}
+        run: |
+          if [ "$(TZ=America/Chicago date +%F)" \> "$CHAIN_UNTIL" ]; then
+            echo "::notice::Past $CHAIN_UNTIL; the chain stops here."
+            echo "CHAIN_DONE=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          TARGET=$((RUN_STARTED + 1680))
+          NOW=$(date +%s)
+          if [ "$NOW" -lt "$TARGET" ]; then sleep $((TARGET - NOW)); fi
+
+      - name: Start the next link
+        if: ${{ !cancelled() && env.CHAIN_DONE != '1' && (github.event_name != 'workflow_dispatch' || inputs.chain) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A run held by the concurrency group reports `pending`, not `queued`, so count
+          # every run that has not completed. If one is already waiting it carries the chain;
+          # dispatching over it would cancel it.
+          count_others() {
+            gh run list -R "$GITHUB_REPOSITORY" --workflow refresh.yml --limit 20 \
+              --json databaseId,status \
+              --jq "[.[] | select(.status != \"completed\" and .databaseId != ${{ github.run_id }})] | length" || echo 0
+          }
+          if [ "$(count_others)" -gt 0 ]; then
+            echo "::notice::A run is already waiting; it carries the chain."
+            exit 0
+          fi
+          gh workflow run refresh.yml -R "$GITHUB_REPOSITORY" -f chain=true
+          sleep 15
+          if [ "$(count_others)" -gt 0 ]; then
+            echo "::notice::Next link is live."
+          else
+            echo "::error::Dispatched the next run and none appeared. Press Run workflow to restart the chain."
+            exit 1
+          fi
