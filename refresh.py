@@ -3,6 +3,7 @@
 
     python3 refresh.py               # rebuild dashboard.html (the Claude artifact); republish it after
     python3 refresh.py --site _site  # also write the GitHub Pages site: index.html + version.json + robots.txt
+                                     # (and skip the full ads listing, which only a live re-rank in Claude uses)
 
 The Claude artifact refreshes itself live through the viewer's Meta Ads connector; the baked
 snapshot is only what shows before (or without) that read. The GitHub Pages copy has no
@@ -32,6 +33,8 @@ NAME_FILTER = "September"          # the page classifies further, by name (see g
 LM_LEAD_FACTOR = 0.75              # mirrors CFG.lmLeadFactor; here it only decides which previews to bake
 RETIRED_HASHES = {"5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"}  # PBI/CLAUDE.md
 PREVIEWS_PER_BLOCK = 8             # the page shows 5; spares cover a live re-rank inside Claude
+MIN_SPEND = 20                     # mirrors CFG.minSpend: an ad needs $20 spent to rank as best creative
+CREATIVE_FIELDS = "creative{id,object_type,video_id,image_hash,effective_object_story_id}"
 
 SKELETON = """<!doctype html>
 <html lang="en">
@@ -48,7 +51,7 @@ SKELETON = """<!doctype html>
 ROBOTS = "User-agent: *\nDisallow: /\n"
 
 
-def graph(url, params):
+def graph(url, params, fatal=True):
     """GET with retries on throttles and transient Graph errors; a real fault fails at once."""
     for attempt in range(6):
         args = ["curl", "-s", "-G", url, "-w", "\n%{http_code}"]
@@ -66,6 +69,8 @@ def graph(url, params):
         if err.get("code") in (1, 2, 4, 17, 32, 341, 613) or status.startswith("5"):
             time.sleep(min(300, 5 * 3 ** attempt))
             continue
+        if not fatal and err.get("code") == 100:  # an id Meta cannot read; a throttle still stops the pull
+            return None
         sys.exit(f"Meta error {status}: {err.get('message')}")
     sys.exit("Meta kept failing or throttling; try again in a few minutes.")
 
@@ -92,7 +97,7 @@ def group_of(campaign):
     return None
 
 
-def pull_ads(today):
+def pull_ads(today, full_listing):
     """Ad-level totals since START, every ad's format, and small previews of the likely winners."""
     base = f"https://graph.facebook.com/v21.0/{ACCOUNT}"
     name_filter = {"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}
@@ -110,14 +115,15 @@ def pull_ads(today):
                     "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)})
 
     # Format for every ad in these campaigns, not just the ones that have spent, so a live
-    # re-rank inside Claude can still tell an image from a video.
+    # re-rank inside Claude can still tell an image from a video. Only a local build needs it:
+    # it is ~20 calls a pull, and the Pages copy never re-ranks.
     creatives = {}
     listing = []
     # One listing per group name: the bare "September" filter would also page through every
     # September 2025 ad in the account.
-    for group_name in ("September 2026 Lead Magnet", "September DTC"):
+    for group_name in ("September 2026 Lead Magnet", "September DTC") if full_listing else ():
         listing += paged(f"{base}/ads", {
-            "fields": "id,creative{id,object_type,video_id,image_hash,effective_object_story_id}",
+            "fields": "id," + CREATIVE_FIELDS,
             "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": group_name},
                                      {"field": "ad.effective_status", "operator": "IN", "value":
                                       ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "ARCHIVED", "PENDING_REVIEW",
@@ -125,21 +131,45 @@ def pull_ads(today):
             "limit": "50",  # 100 per page trips Meta's "reduce the amount of data" on page two
             "access_token": token(),
         })
-    for a in listing:
-        cr = a.get("creative") or {}
-        creatives[a["id"]] = {
+    def keep(ad):
+        cr = ad.get("creative") or {}
+        creatives[ad["id"]] = {
             "f": "video" if cr.get("video_id") or cr.get("object_type") == "VIDEO" else "image",
             "h": cr.get("image_hash"),
             "c": cr.get("id"),
             "p": cr.get("effective_object_story_id"),
         }
+    for a in listing:
+        keep(a)
+
+    # Every ad that has spent is then looked up by id. The listing can end early with no error
+    # (2026-09-17 09:33: 312 of ~990 ads came back and 136 spending ads fell out of Best creative),
+    # and by id it is ~6 calls, so the Pages build uses this path alone.
+    missing = sorted({a["id"] for a in ads if a["spend"] > 0 and a["id"] not in creatives})
+    for i in range(0, len(missing), 50):
+        chunk = missing[i:i + 50]
+        data = graph("https://graph.facebook.com/v21.0/", {"ids": ",".join(chunk), "fields": CREATIVE_FIELDS,
+                                                            "access_token": token()}, fatal=False)
+        if data is None:  # one unreadable id fails the whole batch; read that chunk one by one
+            data = {}
+            for ad_id in chunk:
+                one = graph(f"https://graph.facebook.com/v21.0/{ad_id}", {"fields": CREATIVE_FIELDS,
+                                                                           "access_token": token()}, fatal=False)
+                if one:
+                    data[ad_id] = one
+        for ad_id, v in data.items():
+            keep({"id": ad_id, "creative": v.get("creative")})
+    unmapped = [a for a in ads if a["spend"] > 0 and a["id"] not in creatives]
+    if unmapped:
+        print(f"warning: {len(unmapped)} spending ads have no creative (${sum(a['spend'] for a in unmapped):,.2f}); "
+              "they cannot rank as best creative", file=sys.stderr)
 
     # Same ranking as the page: leads (Lead Magnet at 75%), then cost per lead, then spend;
     # plus the top by link clicks, which the page backfills with when few ads have leads.
     wanted = set()
     for g in ("lm", "dtc"):
         for f in ("image", "video"):
-            block = [a for a in ads if group_of(a["campaign"]) == g and a["spend"] > 0
+            block = [a for a in ads if group_of(a["campaign"]) == g and a["spend"] >= MIN_SPEND
                      and a["id"] in creatives and creatives[a["id"]]["f"] == f
                      and creatives[a["id"]]["h"] not in RETIRED_HASHES]
             factor = LM_LEAD_FACTOR if g == "lm" else 1
@@ -171,7 +201,7 @@ def pull_ads(today):
     return ads, creatives, thumbs
 
 
-def pull():
+def pull(full_listing=True):
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     params = {
         "level": "campaign",
@@ -198,7 +228,7 @@ def pull():
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
-    ads, creatives, thumbs = pull_ads(today)
+    ads, creatives, thumbs = pull_ads(today, full_listing)
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
             "ads": ads, "creatives": creatives, "thumbs": thumbs}
 
@@ -219,7 +249,7 @@ def main():
     ap.add_argument("--site", help="also write the GitHub Pages site into this directory")
     args = ap.parse_args()
 
-    snap = pull()
+    snap = pull(full_listing=not args.site)
     (HERE / "data").mkdir(exist_ok=True)
     (HERE / "data/snapshot.json").write_text(json.dumps({k: v for k, v in snap.items() if k != "thumbs"}, indent=1))
     html = build(snap)

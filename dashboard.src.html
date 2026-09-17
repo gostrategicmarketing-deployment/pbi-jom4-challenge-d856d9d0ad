@@ -336,7 +336,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
       <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
       <li><b>Lead Magnet leads are Meta's count × 75%</b>, because Meta counts more Lead Magnet leads than GHL receives. Cost per lead and conv. rate for Lead Magnet, and for all campaigns combined, use that adjusted number; DTC uses Meta's count as is. The adjusted count is rounded down to whole leads, and cost per lead and conv. rate use that whole number. Each day rounds down on its own, so the daily rows can add up to a lead or two less than the total.</li>
-      <li><b>Best creative</b> ranks every ad that has spent since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. A single ad's Lead Magnet leads keep their decimals (Meta's 3 is 2.25), since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
+      <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. A single ad's Lead Magnet leads keep their decimals (Meta's 3 is 2.25), since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead. The DTC campaigns optimise for Lead.</li>
       <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 15 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
     </ul>
@@ -354,6 +354,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     tz: "America/Chicago",
     target: 15,
     lmLeadFactor: 0.75,
+    minSpend: 20, // an ad needs this much spent to rank as best creative (Phil, 2026-09-17)
     // PBI's retired webinar creatives (PBI/CLAUDE.md): never ranked as best, matched on image hash
     retiredHashes: ["5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"],
     server: "Meta Ads",
@@ -609,7 +610,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   function bestFor(g, f) {
     var pool = adState.ads.filter(function (a) {
       var c = CREATIVES[a.id];
-      return a.spend > 0 && groupOf(a.campaign) === g && c && c.f === f && CFG.retiredHashes.indexOf(c.h) < 0;
+      return a.spend >= CFG.minSpend && groupOf(a.campaign) === g && c && c.f === f && CFG.retiredHashes.indexOf(c.h) < 0;
     }).map(adMetrics);
     var ranked = pool.filter(function (m) { return m.leads > 0; })
       .sort(function (x, y) { return (y.leads - x.leads) || (x.cpl - y.cpl) || (y.spend - x.spend); });
@@ -676,7 +677,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
         var b = bestFor(g, f[0]), label = el("h4", "best-fmt", f[1]);
         label.appendChild(el("span", null, "Top " + Math.min(5, b.count) + " of " + b.count + " with spend"));
         box.appendChild(label);
-        if (!b.top.length) { box.appendChild(el("p", "best-empty", "No " + f[1].toLowerCase() + " have spent yet.")); return; }
+        if (!b.top.length) { box.appendChild(el("p", "best-empty", "No " + f[1].toLowerCase() + " have spent $" + CFG.minSpend + " yet.")); return; }
         var grid = el("div", "ad-grid");
         b.top.forEach(function (m, i) { grid.appendChild(adCard(m, i + 1)); });
         box.appendChild(grid);
