@@ -1,7 +1,7 @@
 name: refresh
 
 # Pull Meta, rebuild the JOM4 challenge dashboard, deploy it to GitHub Pages, then start the
-# next run thirty minutes on. The Meta token lives only in the FB_TOKEN Actions secret
+# next run fifteen minutes on. The Meta token lives only in the FB_TOKEN Actions secret
 # (read-only system user token) and reaches refresh.py as an environment variable.
 #
 # The schedule is the chain at the foot of this job, not the cron. GitHub's scheduler sheds
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       chain:
-        description: Start the next run 30 minutes after this one
+        description: Start the next run 15 minutes after this one
         type: boolean
         default: true
   push:
@@ -84,7 +84,7 @@ jobs:
           timeout: 900000
           error_count: 30
 
-      - name: Hold until the half hour is up
+      - name: Hold until the quarter hour is up
         if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.chain) }}
         run: |
           if [ "$(TZ=America/Chicago date +%F)" \> "$CHAIN_UNTIL" ]; then
@@ -92,7 +92,8 @@ jobs:
             echo "CHAIN_DONE=1" >> "$GITHUB_ENV"
             exit 0
           fi
-          TARGET=$((RUN_STARTED + 1680))
+          # 870s plus ~30s of dispatch and queueing puts the next pull about 15 minutes after this one.
+          TARGET=$((RUN_STARTED + 870))
           NOW=$(date +%s)
           if [ "$NOW" -lt "$TARGET" ]; then sleep $((TARGET - NOW)); fi
 

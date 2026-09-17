@@ -4,7 +4,7 @@ Meta cost per Lead event for the September 2026 5-Day Challenge ads in the JOM4 
 Lead Magnet, DTC and all campaigns combined, for today, so far, and day by day.
 
 The workflow in `.github/workflows/refresh.yml` pulls Meta with `refresh.py`, builds the page and
-deploys it to GitHub Pages, then starts its own next run 30 minutes later (GitHub's cron is not
+deploys it to GitHub Pages, then starts its own next run 15 minutes later (GitHub's cron is not
 reliable on this account, so the cron is only a fallback). The chain stops handing on after
 `CHAIN_UNTIL`. To restart it or pull by hand: Actions, refresh, Run workflow.
 
