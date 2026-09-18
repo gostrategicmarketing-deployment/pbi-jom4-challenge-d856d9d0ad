@@ -190,10 +190,11 @@ section { margin-top: 36px; }
 .ad-kpi { display: flex; align-items: baseline; gap: 6px; }
 .ad-cpl { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1; font-variant-numeric: lining-nums tabular-nums; }
 .ad-kpi-label { font-size: 12px; color: var(--ink-3); }
-.ad-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; margin: 0; font-size: 12px; }
-.ad-metrics div { display: flex; justify-content: space-between; gap: 6px; min-width: 0; }
-.ad-metrics dt { color: var(--ink-3); white-space: nowrap; }
-.ad-metrics dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* label over value: side by side, a four-figure spend ran out of room in a 186px card */
+.ad-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; margin: 0; }
+.ad-metrics div { display: grid; min-width: 0; }
+.ad-metrics dt { font-size: 11px; line-height: 1.3; color: var(--ink-3); white-space: nowrap; }
+.ad-metrics dd { margin: 0; font-size: 13px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ad-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-top: 2px; }
 .ad-foot .chip { font-size: 11px; padding: 3px 8px; }
 .ad-foot a { font-size: 12px; font-weight: 600; color: var(--accent-ink); text-decoration: none; }
@@ -374,7 +375,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
       <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
       <li id="method-leads"></li>
-      <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. Where an ad's leads are Meta's count scaled to GHL they keep their decimals, since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
+      <li><b>Best creative</b> is a running tally per creative since Sep 17, the first day these campaigns ran, not a view of today. The same image or video often runs under several ads (rebuilt campaigns, duplicated ad sets, replacement ads), so every ad that used it is added up, matched on Meta's image hash or video id, including ads that have since been paused or replaced; <b>Ads</b> on each card says how many. The top 10 images and top 10 videos are shown for each group, among creatives with at least $20 spent in total: most leads first, then the lower cost per lead, then the higher spend. The name and preview are the creative's highest-spending ad. Where leads are Meta's count scaled to GHL they keep their decimals, since rounding one ad down would erase ads with a single lead. When fewer than ten creatives in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks a creative under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li><b>Landing pages</b> splits the same numbers by the page each ad sends people to, taken from the ad's own link. One ad set can point its ads at several pages, so the split is made ad by ad, and the query string (the tracking tags) is ignored. The day grid is from the last pull, not the live read, and keeps every day since Sep 17: each pull re-reads the last week from Meta and carries the older days forward.</li>
       <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead, while the page counts the challenge opt-in after it. The DTC campaigns optimise for Lead.</li>
       <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 30 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
@@ -403,7 +404,8 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       lm:  { meta: 352, actual: 186, asOf: "2026-09-17" },
       dtc: { meta: 179, actual: 147, asOf: "2026-09-17" }
     },
-    minSpend: 20, // an ad needs this much spent to rank as best creative (Phil, 2026-09-17)
+    minSpend: 20, // a creative needs this much spent to rank as best creative (Phil, 2026-09-17)
+    topN: 10,     // creatives shown per block, images and videos apart (Phil, 2026-09-18: top 10, not 5)
     // PBI's retired webinar creatives (PBI/CLAUDE.md): never ranked as best, matched on image hash
     retiredHashes: ["5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"],
     server: "Meta Ads",
@@ -842,25 +844,51 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     };
   }
 
+  // The same image or video runs under several ads: V1-V3 were rebuilt as V4-V6, and a replaced
+  // ad's successor keeps its media. Best creative is a running tally per creative, so it adds up
+  // every ad that ran it since the start, paused and replaced ones included, matched on the image
+  // hash or the video id (refresh.py creative_key). An ad with neither stands alone.
+  function creativeKey(c, adId) {
+    if (c.f === "video") return c.v ? "v:" + c.v : "a:" + adId;
+    return c.h ? "h:" + c.h : "a:" + adId;
+  }
+
   function bestFor(g, f) {
-    var pool = adState.ads.filter(function (a) {
+    var by = {};
+    adState.ads.forEach(function (a) {
       var c = CREATIVES[a.id];
-      return a.spend >= CFG.minSpend && groupOf(a.campaign) === g && c && c.f === f && CFG.retiredHashes.indexOf(c.h) < 0;
-    }).map(adMetrics);
+      if (groupOf(a.campaign) !== g || !c || c.f !== f || CFG.retiredHashes.indexOf(c.h) >= 0) return;
+      var k = creativeKey(c, a.id), t = by[k] = by[k] || { ads: [], leads: 0, spend: 0, clicks: 0, campaigns: {} };
+      t.ads.push(a); t.leads += adMetrics(a).leads; t.spend += a.spend; t.clicks += a.link_clicks; t.campaigns[a.campaign] = 1;
+    });
+    var pool = Object.keys(by).map(function (k) {
+      var t = by[k];
+      t.ads.sort(function (x, y) { return y.spend - x.spend; });
+      t.ad = t.ads[0]; // the highest-spending ad names the creative and supplies its preview
+      t.nAds = t.ads.filter(function (a) { return a.spend > 0; }).length;
+      t.cpl = t.leads ? t.spend / t.leads : null;
+      t.cpc = t.clicks ? t.spend / t.clicks : null;
+      t.cvr = t.clicks ? t.leads / t.clicks : null;
+      return t;
+    }).filter(function (t) { return t.spend >= CFG.minSpend; });
     var ranked = pool.filter(function (m) { return m.leads > 0; })
       .sort(function (x, y) { return (y.leads - x.leads) || (x.cpl - y.cpl) || (y.spend - x.spend); });
-    if (ranked.length < 5) {
+    if (ranked.length < CFG.topN) {
       ranked = ranked.concat(pool.filter(function (m) { return !(m.leads > 0); })
         .sort(function (x, y) { return (y.clicks - x.clicks) || (y.spend - x.spend); }));
     }
-    return { top: ranked.slice(0, 5), count: pool.length };
+    return { top: ranked.slice(0, CFG.topN), count: pool.length };
   }
 
   function adCard(m, rank) {
     var a = m.ad, c = CREATIVES[a.id] || {}, card = el("article", "ad");
     var media = el("div", "ad-media");
-    if (c.c && THUMBS[c.c]) {
-      var img = el("img"); img.src = THUMBS[c.c]; img.alt = ""; img.loading = "lazy"; media.appendChild(img);
+    // A newer ad can overtake on spend in a live read before its preview is baked, so take the
+    // preview from whichever of the creative's ads has one.
+    var thumb = null;
+    m.ads.some(function (x) { var cx = CREATIVES[x.id] || {}; thumb = cx.c && THUMBS[cx.c]; return !!thumb; });
+    if (thumb) {
+      var img = el("img"); img.src = thumb; img.alt = ""; img.loading = "lazy"; media.appendChild(img);
     } else {
       media.appendChild(el("div", "ad-ph", "Preview appears after the next publish"));
     }
@@ -871,15 +899,16 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     var name = el("p", "ad-name", a.name.replace(/^(Lead Magnet|DTC)\s*\|\s*/i, ""));
     name.title = a.name;
     body.appendChild(name);
-    var camp = el("p", "ad-camp", a.campaign.split(" | ").pop());
-    camp.title = a.campaign;
+    var camps = Object.keys(m.campaigns);
+    var camp = el("p", "ad-camp", camps.length === 1 ? a.campaign.split(" | ").pop() : fInt(camps.length) + " campaigns");
+    camp.title = camps.join("\n");
     body.appendChild(camp);
     var kpi = el("div", "ad-kpi");
     kpi.appendChild(el("span", "ad-cpl", fMoney(m.cpl)));
     kpi.appendChild(el("span", "ad-kpi-label", "per lead"));
     body.appendChild(kpi);
     var dl = el("dl", "ad-metrics");
-    [["Leads", fLeadsAd.format(m.leads)], ["Spend", fMoney(m.spend)], ["Clicks", fInt(m.clicks)], ["CPC", fMoney(m.cpc)], ["Conv.", fPct(m.cvr)]].forEach(function (p) {
+    [["Leads", fLeadsAd.format(m.leads)], ["Spend", fMoney(m.spend)], ["Clicks", fInt(m.clicks)], ["CPC", fMoney(m.cpc)], ["Conv.", fPct(m.cvr)], ["Ads", fInt(m.nAds)]].forEach(function (p) {
       var d = el("div"); d.appendChild(el("dt", null, p[0])); d.appendChild(el("dd", null, p[1])); dl.appendChild(d);
     });
     body.appendChild(dl);
@@ -889,8 +918,10 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     else if (m.spend < 25 || m.clicks < 20) chip = ["warn", "Thin data"];
     if (chip) { var ch = el("span", "chip", chip[1]); ch.setAttribute("data-tone", chip[0]); foot.appendChild(ch); }
     else foot.appendChild(el("span"));
-    if (c.p && /^\d+_\d+$/.test(c.p)) {
-      var ids = c.p.split("_"), link = el("a", null, "View post");
+    var post = c.p;
+    if (!(post && /^\d+_\d+$/.test(post))) m.ads.some(function (x) { post = (CREATIVES[x.id] || {}).p; return post && /^\d+_\d+$/.test(post); });
+    if (post && /^\d+_\d+$/.test(post)) {
+      var ids = post.split("_"), link = el("a", null, "View post");
       link.href = "https://www.facebook.com/" + ids[0] + "/posts/" + ids[1] + "/";
       link.target = "_blank"; link.rel = "noopener";
       foot.appendChild(link);
@@ -912,7 +943,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       box.appendChild(head);
       FORMATS.forEach(function (f) {
         var b = bestFor(g, f[0]), label = el("h4", "best-fmt", f[1]);
-        label.appendChild(el("span", null, "Top " + Math.min(5, b.count) + " of " + b.count + " with spend"));
+        label.appendChild(el("span", null, "Top " + Math.min(CFG.topN, b.count) + " of " + b.count + " with $" + CFG.minSpend + "+ spent"));
         box.appendChild(label);
         if (!b.top.length) { box.appendChild(el("p", "best-empty", "No " + f[1].toLowerCase() + " have spent $" + CFG.minSpend + " yet.")); return; }
         var grid = el("div", "ad-grid");
@@ -921,7 +952,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       });
       wrap.appendChild(box);
     });
-    document.getElementById("best-note").textContent = "Since " + dayLabel(CFG.start) + " · leads, then cost per lead, then spend · as of " + timeCT(adState.asOf);
+    document.getElementById("best-note").textContent = "Running tally since " + dayLabel(CFG.start) + " · each image or video adds up every ad it ran in, paused ones included · leads, then cost per lead, then spend · as of " + timeCT(adState.asOf);
   }
 
   function renderMethod() {

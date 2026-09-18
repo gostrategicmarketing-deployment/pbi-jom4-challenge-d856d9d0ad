@@ -42,10 +42,11 @@ NAME_FILTER = "September"          # the page classifies further, by name (see g
 LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
 LEAD_FACTOR = {g: actual / meta for g, (meta, actual) in LEAD_CAL.items()}
 RETIRED_HASHES = {"5aa5b3c86b8de4813d14c4cf7ef428c1", "d8214f6e4cbe8373bb0f3b9f3ed79610"}  # PBI/CLAUDE.md
-PREVIEWS_PER_BLOCK = 8             # the page shows 5; spares cover a live re-rank inside Claude
-MIN_SPEND = 20                     # mirrors CFG.minSpend: an ad needs $20 spent to rank as best creative
+TOP_N = 10                         # mirrors CFG.topN: the page shows the top 10 creatives per block (Phil, 2026-09-18)
+PREVIEWS_PER_BLOCK = 13            # the page shows 10; spares cover a live re-rank inside Claude
+MIN_SPEND = 20                     # mirrors CFG.minSpend: a creative needs $20 spent to rank as best creative
 CREATIVE_FIELDS = ("creative{id,object_type,video_id,image_hash,effective_object_story_id,"
-                   "object_story_spec{link_data{link,call_to_action},video_data{call_to_action}},"
+                   "object_story_spec{link_data{link,call_to_action},video_data{video_id,call_to_action}},"
                    "asset_feed_spec{link_urls}}")
 WINDSOR_URL = "https://connectors.windsor.ai/facebook"
 MAIN_HOST = "photographybusinessinstitute.com"  # this host shows as a bare path; any other keeps its name
@@ -97,8 +98,12 @@ SKELETON = """<!doctype html>
 ROBOTS = "User-agent: *\nDisallow: /\n"
 
 
-def graph(url, params, fatal=True):
-    """GET with retries on throttles and transient Graph errors; a real fault fails at once."""
+def graph(url, params, fatal=True, shrinkable=False):
+    """GET with retries on throttles and transient Graph errors; a real fault fails at once.
+
+    `shrinkable`: hand "reduce the amount of data" back to the caller (as None) instead of
+    retrying the same request, which Meta answers the same way every time.
+    """
     for attempt in range(6):
         args = ["curl", "-s", "-G", url, "-w", "\n%{http_code}"]
         for k, v in params.items():
@@ -112,6 +117,8 @@ def graph(url, params, fatal=True):
         err = data.get("error")
         if not err:
             return data
+        if shrinkable and "reduce the amount of data" in str(err.get("message", "")):
+            return None
         if err.get("code") in (1, 2, 4, 17, 32, 341, 613) or status.startswith("5"):
             time.sleep(min(300, 5 * 3 ** attempt))
             continue
@@ -208,10 +215,59 @@ def page_key(url):
     return "/" + path if host == MAIN_HOST else (u or None)
 
 
+def creative_key(c):
+    """What makes two ads the same creative: the image hash, or the uploaded video's id; else the ad stands alone.
+
+    Mirrors creativeKey() in the template. The same image or video runs under several ads (V1-V3
+    were rebuilt as V4-V6, and replaced ads keep their media), so Best creative adds them up.
+    """
+    if c.get("f") == "video":
+        return "v:" + c["v"] if c.get("v") else None
+    return "h:" + c["h"] if c.get("h") else None
+
+
+def published_creatives():
+    """The creative map from the last published pull, so a video id is looked up once per ad.
+
+    Windsor has no per-ad video id, and Meta's by-id read of every video ad would add ~6 calls to
+    each pull. A creative never changes once made, so a published entry is reused only while the
+    ad still points at the same creative id; an edited ad gets a new one and is read again.
+    """
+    out = subprocess.run(["curl", "-sL", "--max-time", "20", f"{SITE_URL}/creatives.json?cb={int(time.time())}"],
+                         capture_output=True, text=True).stdout
+    try:
+        prev = json.loads(out)
+    except ValueError:
+        prev = None
+    if not isinstance(prev, dict):
+        print("warning: no published creatives.json; every video ad's id is read from Meta this pull", file=sys.stderr)
+        return {}
+    return {k: v for k, v in prev.items() if isinstance(v, dict)}
+
+
 def paged(url, params):
+    """Every page of a listing. A page Meta finds too heavy is asked for again at half the size.
+
+    The /ads listing with creative fields grew past what Meta will serve at 50 a page on
+    2026-09-18 (~1,500 ads): it answered "reduce the amount of data" on a page part-way through,
+    every time, and the plain retry spent 13 minutes on it before the pull gave up.
+    """
     out = []
     while url:
-        data = graph(url, params)
+        data = graph(url, params, shrinkable=True)
+        if data is None:
+            limit = int(params.get("limit") or (re.search(r"[?&]limit=(\d+)", url) or [0, 50])[1])
+            if limit <= 5:
+                sys.exit("Meta refuses even 5 rows a page (\"reduce the amount of data\"); try again later.")
+            limit = max(5, limit // 2)
+            if params:
+                params = {**params, "limit": str(limit)}
+            elif re.search(r"[?&]limit=\d+", url):
+                url = re.sub(r"([?&]limit=)\d+", rf"\g<1>{limit}", url)
+            else:
+                url += ("&" if "?" in url else "?") + f"limit={limit}"
+            print(f"Meta asked for less data; paging at {limit}", file=sys.stderr)
+            continue
         out += data["data"]
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
@@ -263,9 +319,14 @@ def pull_ads(today, full_listing, ghl=None):
         })
     def keep(ad):
         cr = ad.get("creative") or {}
+        # The uploaded video is the one in the story spec. The creative's own video_id is a copy
+        # Meta makes per ad (three ads of one upload, three ids on 2026-09-18), so it matches nothing.
+        # Meta's read only: Windsor has neither.
+        video = ((cr.get("object_story_spec") or {}).get("video_data") or {}).get("video_id") or cr.get("video_id")
         creatives[ad["id"]] = {
             "f": "video" if cr.get("video_id") or cr.get("object_type") == "VIDEO" else "image",
             "h": cr.get("image_hash"),
+            "v": video,
             "c": cr.get("id"),
             "p": cr.get("effective_object_story_id"),
             "u": page_key(link_of(cr)),
@@ -283,9 +344,22 @@ def pull_ads(today, full_listing, ghl=None):
     # early with no error (2026-09-17 09:33: 312 of ~990 ads came back and 136 spending ads fell
     # out of Best creative), and by id it is ~6 calls without Windsor, so the Pages build skips the
     # listing and relies on Windsor plus this read.
-    missing = sorted(spending - creatives.keys())
+    missing = set(spending - creatives.keys())
+    # Best creative adds up every ad that ran the same video, so a video ad mapped by Windsor still
+    # needs its video id: from the last published map while its creative is unchanged, else from Meta.
+    no_vid = [i for i in spending & creatives.keys() if creatives[i]["f"] == "video" and not creatives[i].get("v")]
+    prev, reused = (published_creatives() if no_vid else {}), 0
+    for ad_id in no_vid:
+        p = prev.get(ad_id) or {}
+        if p.get("v") and p.get("c") and p.get("c") == creatives[ad_id]["c"]:
+            creatives[ad_id]["v"] = p["v"]
+            reused += 1
+        else:
+            missing.add(ad_id)
+    missing = sorted(missing)
     if os.environ.get("WINDSOR_API_KEY"):
-        print(f"Windsor mapped {len(from_windsor)} ads; Meta looks up {len(missing)}")
+        print(f"Windsor mapped {len(from_windsor)} ads; {reused} video ids carried from the last pull; "
+              f"Meta looks up {len(missing)}")
     for i in range(0, len(missing), 50):
         chunk = missing[i:i + 50]
         data = graph("https://graph.facebook.com/v21.0/", {"ids": ",".join(chunk), "fields": CREATIVE_FIELDS,
@@ -304,24 +378,34 @@ def pull_ads(today, full_listing, ghl=None):
         print(f"warning: {len(unmapped)} spending ads have no creative (${sum(a['spend'] for a in unmapped):,.2f}); "
               "they cannot rank as best creative", file=sys.stderr)
 
-    # Same ranking as the page: leads (GHL's own opt-ins per ad when the GHL read worked, otherwise
-    # Meta scaled to GHL per group), then cost per lead, then spend; plus the top by link
-    # clicks, which the page backfills with when few ads have leads.
+    # Same ranking as the page (bestFor): every ad that ran the same image or video is added up into
+    # one creative, since START and paused ads included; then leads (GHL's own opt-ins per ad when
+    # the GHL read worked, otherwise Meta scaled to GHL per group), cost per lead, spend. When fewer
+    # than TOP_N creatives have leads the page fills in by link clicks, and so do the previews.
+    # One preview per creative: its highest-spending ad's, which is the one the page shows.
     wanted = set()
     for g in ("lm", "dtc"):
+        src = (ghl or {}).get(g)
+        factor = LEAD_FACTOR.get(g, 1)
         for f in ("image", "video"):
-            block = [a for a in ads if group_of(a["campaign"]) == g and a["spend"] >= MIN_SPEND
-                     and a["id"] in creatives and creatives[a["id"]]["f"] == f
-                     and creatives[a["id"]]["h"] not in RETIRED_HASHES]
-            factor = LEAD_FACTOR.get(g, 1)
-
-            def rank(a):
-                src = (ghl or {}).get(g)
-                adj = src["ads"].get(a["id"], 0) if src else a["leads"] * factor
-                return (-adj, a["spend"] / adj if adj else float("inf"), -a["spend"])
-            picks = sorted(block, key=rank)[:PREVIEWS_PER_BLOCK]
-            picks += sorted(block, key=lambda a: (-a["link_clicks"], -a["spend"]))[:5]
-            wanted |= {creatives[a["id"]]["c"] for a in picks if creatives[a["id"]]["c"]}
+            tally = {}
+            for a in ads:
+                c = creatives.get(a["id"])
+                if group_of(a["campaign"]) != g or not c or c["f"] != f or c["h"] in RETIRED_HASHES:
+                    continue
+                t = tally.setdefault(creative_key(c) or "a:" + a["id"], {"leads": 0.0, "spend": 0.0, "clicks": 0.0, "top": a})
+                t["leads"] += src["ads"].get(a["id"], 0) if src else a["leads"] * factor
+                t["spend"] += a["spend"]
+                t["clicks"] += a["link_clicks"]
+                if a["spend"] > t["top"]["spend"]:
+                    t["top"] = a
+            block = [t for t in tally.values() if t["spend"] >= MIN_SPEND]
+            picks = sorted((t for t in block if t["leads"] > 0),
+                           key=lambda t: (-t["leads"], t["spend"] / t["leads"], -t["spend"]))
+            if len(picks) < TOP_N:
+                picks += sorted((t for t in block if not t["leads"] > 0), key=lambda t: (-t["clicks"], -t["spend"]))
+            wanted |= {creatives[t["top"]["id"]]["c"] for t in picks[:PREVIEWS_PER_BLOCK]
+                       if creatives[t["top"]["id"]]["c"]}
 
     thumbs = {}
     wanted = sorted(wanted)
@@ -802,6 +886,8 @@ def main():
         cut = html.index("</style>") + len("</style>")  # title, meta, fonts and CSS belong in <head>
         (site / "index.html").write_text(SKELETON.format(head=html[:cut], body=html[cut:].lstrip()))
         (site / "url_days.json").write_text(json.dumps(snap["url_days"], separators=(",", ":")))
+        # the next pull's store of video ids (published_creatives); the page itself carries the same map
+        (site / "creatives.json").write_text(json.dumps(snap["creatives"], separators=(",", ":")))
         if snap.get("hyros"):
             (site / "hyros.json").write_text(json.dumps(snap["hyros"], separators=(",", ":")))
         (site / "daily.csv").write_text(daily)   # the Google Sheet's feed (IMPORTDATA)
@@ -812,6 +898,9 @@ def main():
     leads = sum(r["leads"] for r in snap["rows"])
     print(f"{len(snap['rows'])} campaign-day rows, ${spend:,.2f} spent, {leads:.0f} Meta leads, pulled {snap['pulled_at']}")
     print(f"{len(snap['ads'])} ads with delivery, {len(snap['creatives'])} ads mapped to a format, {len(snap['thumbs'])} previews baked")
+    spent = [snap["creatives"][a["id"]] for a in snap["ads"] if a["spend"] > 0 and a["id"] in snap["creatives"]]
+    print(f"{len({creative_key(c) for c in spent if creative_key(c)})} distinct creatives behind {len(spent)} spending ads; "
+          f"{sum(1 for c in spent if not creative_key(c))} with no image hash or video id rank on their own")
     for gh in (snap.get("leadsrc") or {}).values():
         if gh.get("source") != "GHL":
             continue
