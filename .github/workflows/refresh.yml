@@ -58,9 +58,12 @@ jobs:
       - name: Pull Meta and build the site
         env:
           FB_TOKEN: ${{ secrets.FB_TOKEN }}
-          # The PBI-scoped Hyros key. It counts the DTC leads; unset, the page falls back to
-          # Meta's own Lead event scaled to GHL and the pull says so.
+          # The PBI-scoped Hyros key: the DTC fallback when GHL cannot be read; with neither, the
+          # page falls back to Meta's own Lead event scaled to GHL and the pull says so.
           HYROS_API_KEY: ${{ secrets.HYROS_API_KEY }}
+          # The PBI location's GHL Private Integration Token. It counts the DTC leads straight from
+          # GHL's opt-ins; unset or failing, the pull falls back to Hyros and says so.
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
           # Optional. When set, ad creative details come from Windsor.ai and save Meta calls;
           # every number still comes from Meta. Unset, the pull runs on Meta alone.
           WINDSOR_API_KEY: ${{ secrets.WINDSOR_API_KEY }}

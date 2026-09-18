@@ -12,14 +12,17 @@ deploys it to GitHub Pages, then starts its own next run 30 minutes later (GitHu
 reliable on this account, so the cron is only a fallback). The chain stops handing on after
 `CHAIN_UNTIL`. To restart it or pull by hand: Actions, refresh, Run workflow.
 
-DTC leads come from Hyros (campaign level, last click); Lead Magnet leads are Meta's scaled to GHL.
-`hyros.json` deploys beside the page and is read back by the next run, so a failed Hyros read carries
-the last good one forward instead of stepping the series back onto Meta.
+DTC leads come from GHL itself: every opt-in on the six DTC funnels (/newclients1 to /newclients6),
+one per person on the day of their first opt-in, credited to an ad by the Meta ad id in its link. Only
+counts reach the page, never a name or an email. When GHL cannot be read the pull falls back to Hyros
+(campaign level, last click); `hyros.json` deploys beside the page and is read back by the next run,
+so a failed Hyros read carries the last good one forward. Lead Magnet leads are Meta's scaled to GHL.
 
-Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, `HYROS_API_KEY` (the
-PBI-scoped Hyros key; without it the page falls back to Meta scaled to GHL), and the optional
+Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, `GHL_API_KEY` (the PBI
+location's GHL Private Integration Token, which counts the DTC opt-ins), `HYROS_API_KEY` (the
+PBI-scoped Hyros key, the DTC fallback; with neither, the page falls back to Meta scaled to GHL), and the optional
 `WINDSOR_API_KEY`, which lets the pull read the ads' creative details (format, image hash, post id)
-from Windsor.ai instead of Meta. Every number on the page comes from Meta either way. Nothing
+from Windsor.ai instead of Meta. Spend and clicks come from Meta either way. Nothing
 generated is committed; the page deploys as a Pages artifact.
 
 Canonical source lives in Phil's workspace (`PBI/2026-09-17 - JOM4 Challenge Dashboard/`); copy
