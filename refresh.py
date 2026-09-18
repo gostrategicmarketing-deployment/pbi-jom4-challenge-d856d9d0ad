@@ -16,6 +16,8 @@ or if Windsor fails, Meta supplies them as before.
 """
 import argparse
 import base64
+import csv
+import io
 import json
 import os
 import re
@@ -665,7 +667,7 @@ def pull(full_listing=True):
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     params = {
         "level": "campaign",
-        "fields": "campaign_id,campaign_name,spend,actions",
+        "fields": "campaign_id,campaign_name,spend,actions,action_values",
         "time_range": json.dumps({"since": START, "until": today}),
         "time_increment": "1",
         "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}]),
@@ -678,6 +680,7 @@ def pull(full_listing=True):
         data = graph(url, params)
         for r in data["data"]:
             acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
+            vals = {a["action_type"]: float(a["value"]) for a in r.get("action_values", [])}
             rows.append({
                 "date": r["date_start"],
                 "id": r["campaign_id"],
@@ -685,6 +688,11 @@ def pull(full_listing=True):
                 "spend": float(r["spend"]),
                 "link_clicks": acts.get("link_click", 0.0),
                 "leads": acts.get("lead", 0.0),
+                # The funnels' paid step ($17 a purchase on day one) as the pixel reports it: Meta's
+                # number, labelled as such in daily.csv; GHL's orders need a payments scope the
+                # token does not have (401 on 2026-09-17).
+                "purchases": acts.get("offsite_conversion.fb_pixel_purchase", 0.0),
+                "revenue": vals.get("offsite_conversion.fb_pixel_purchase", 0.0),
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
@@ -701,6 +709,68 @@ def pull(full_listing=True):
             "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros,
             "leadsrc": ghl or ({HYROS_GROUP: hyros} if hyros else None),
             "url_days": url_days, "url_pulled_from": since}
+
+
+DAILY_COLUMNS = [
+    "Date", "Status", "Leads", "Spend ($)", "Link clicks", "Conv. rate (%)", "Cost per lead ($)",
+    "Cost per link click ($)", "Purchases (Meta pixel)", "Revenue (Meta pixel, $)", "ROAS (Meta pixel)",
+    "Lead Magnet leads", "DTC leads", "Lead Magnet spend ($)", "DTC spend ($)", "Meta Lead event", "Leads source",
+]
+
+
+def daily_csv(snap):
+    """One row per Central day since START plus a Total row: both groups combined, split beside it.
+
+    Phil, 2026-09-17: a spreadsheet with the combined leads, revenue, spend, link clicks and
+    conversion rate each day. The Pages site publishes this file and a Google Sheet imports it
+    (IMPORTDATA), so it keeps itself current. Leads follow the page exactly: GHL's own count per
+    group when the pull read it, else the same fallbacks (Hyros for DTC, Meta scaled to GHL).
+    Revenue is Meta's pixel Purchase value and says so in its column name. Plain numbers only, no
+    currency or percent signs, so the Sheet reads every cell as a number.
+    """
+    src = snap.get("leadsrc") or {}
+    today = snap["pulled_at"][:10]
+
+    def leads(g, day, rows):
+        s = src.get(g)
+        if s and day in s.get("days", {}):
+            return float(s["days"][day]), "GHL" if s.get("source") == "GHL" else "Hyros"
+        return sum(r["leads"] for r in rows) * LEAD_FACTOR.get(g, 1), f"Meta x {round(LEAD_FACTOR.get(g, 1) * 100)}%"
+
+    def line(label, status, rows, day_list):
+        t = {"spend": 0.0, "clicks": 0.0, "purchases": 0.0, "revenue": 0.0, "meta": 0.0}
+        by = {"lm": [0.0, 0.0], "dtc": [0.0, 0.0]}   # [leads, spend]
+        how = set()
+        for g in by:
+            grp = [r for r in rows if group_of(r["name"]) == g]
+            by[g][1] = sum(r["spend"] for r in grp)
+            for day in day_list:
+                n, h = leads(g, day, [r for r in grp if r["date"] == day])
+                by[g][0] += n
+                how.add(("Lead Magnet" if g == "lm" else "DTC") + ": " + h)
+        for r in rows:
+            if group_of(r["name"]):
+                t["spend"] += r["spend"]; t["clicks"] += r["link_clicks"]; t["meta"] += r["leads"]
+                t["purchases"] += r.get("purchases", 0.0); t["revenue"] += r.get("revenue", 0.0)
+        lm, dtc = round(by["lm"][0]), round(by["dtc"][0])
+        total = lm + dtc
+        return [label, status, total, f"{t['spend']:.2f}", round(t["clicks"]),
+                f"{100 * total / t['clicks']:.2f}" if t["clicks"] else "",
+                f"{t['spend'] / total:.2f}" if total else "",
+                f"{t['spend'] / t['clicks']:.2f}" if t["clicks"] else "",
+                round(t["purchases"]), f"{t['revenue']:.2f}",
+                f"{t['revenue'] / t['spend']:.2f}" if t["spend"] else "",
+                lm, dtc, f"{by['lm'][1]:.2f}", f"{by['dtc'][1]:.2f}", round(t["meta"]),
+                "; ".join(sorted(how))]
+
+    days = sorted({r["date"] for r in snap["rows"] if START <= r["date"] <= today} | {today})
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(DAILY_COLUMNS)
+    for day in days:
+        w.writerow(line(day, "partial" if day == today else "", [r for r in snap["rows"] if r["date"] == day], [day]))
+    w.writerow(line("Total", "through " + today, [r for r in snap["rows"] if START <= r["date"] <= today], days))
+    return out.getvalue()
 
 
 def build(snapshot):
@@ -722,6 +792,8 @@ def main():
     snap = pull(full_listing=not args.site)
     (HERE / "data").mkdir(exist_ok=True)
     (HERE / "data/snapshot.json").write_text(json.dumps({k: v for k, v in snap.items() if k != "thumbs"}, indent=1))
+    daily = daily_csv(snap)
+    (HERE / "data/daily.csv").write_text(daily)
     html = build(snap)
     (HERE / "dashboard.html").write_text(html)
     if args.site:
@@ -732,6 +804,7 @@ def main():
         (site / "url_days.json").write_text(json.dumps(snap["url_days"], separators=(",", ":")))
         if snap.get("hyros"):
             (site / "hyros.json").write_text(json.dumps(snap["hyros"], separators=(",", ":")))
+        (site / "daily.csv").write_text(daily)   # the Google Sheet's feed (IMPORTDATA)
         (site / "version.json").write_text(json.dumps({"pulled_at": snap["pulled_at"]}))
         (site / "robots.txt").write_text(ROBOTS)
 

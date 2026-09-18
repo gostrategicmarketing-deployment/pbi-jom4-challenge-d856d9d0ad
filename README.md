@@ -20,6 +20,11 @@ so a failed Hyros read carries the last good one forward. Lead Magnet leads come
 who reach the "Opt in 2" step (the challenge opt-in on the PDF thank-you page) of the Prelaunch | Paid
 funnel, one per person; without GHL they fall back to Meta scaled to GHL.
 
+`daily.csv` also deploys beside the page: one row per Central day plus a Total row, both groups
+combined (leads, spend, link clicks, conv. rate, cost per lead and per click, Meta-pixel purchases,
+revenue and ROAS) with the Lead Magnet / DTC split beside it. A Google Sheet imports it with
+IMPORTDATA. Revenue is Meta's pixel Purchase value and is labelled as such.
+
 Credentials are Actions secrets only: `FB_TOKEN`, a read-only Meta token, `GHL_API_KEY` (the PBI
 location's GHL Private Integration Token, which counts the DTC opt-ins), `HYROS_API_KEY` (the
 PBI-scoped Hyros key, the DTC fallback; with neither, the page falls back to Meta scaled to GHL), and the optional
