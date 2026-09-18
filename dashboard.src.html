@@ -374,9 +374,9 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
       <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
       <li id="method-leads"></li>
-      <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. A single ad's Lead Magnet leads keep their decimals (Meta's 3 is 2.25), since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
+      <li><b>Best creative</b> ranks every ad that has spent at least $20 since Sep 17, images and videos separately: most leads first, then the lower cost per lead, then the higher spend. Where an ad's leads are Meta's count scaled to GHL they keep their decimals, since rounding one ad down would erase ads with a single lead. When fewer than five ads in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks an ad under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li><b>Landing pages</b> splits the same numbers by the page each ad sends people to, taken from the ad's own link. One ad set can point its ads at several pages, so the split is made ad by ad, and the query string (the tracking tags) is ignored. The day grid is from the last pull, not the live read, and keeps every day since Sep 17: each pull re-reads the last week from Meta and carries the older days forward.</li>
-      <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead. The DTC campaigns optimise for Lead.</li>
+      <li>The Lead Magnet campaigns optimise for CompleteRegistration (the PDF opt-in), not Lead, while the page counts the challenge opt-in after it. The DTC campaigns optimise for Lead.</li>
       <li>Opened in Claude with the Meta Ads connector, the page reads Meta live and refreshes every 5 minutes. On the shared GitHub link, GitHub pulls Meta about every 30 minutes, an open page loads each new pull within two minutes, and Refresh checks straight away. The header shows when the numbers you are looking at were pulled.</li>
     </ul>
   </section>
@@ -460,7 +460,18 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   // ad read land separately. Formats, post links and previews exist only in the snapshot.
   function snapshotAds() { return { ads: SNAP.ads || [], source: "snapshot", asOf: Date.parse(SNAP.pulled_at) }; }
   var adState = snapshotAds();
-  var CREATIVES = SNAP.creatives || {}, THUMBS = SNAP.thumbs || {}, HY = SNAP.leadsrc || SNAP.hyros || null;
+  var CREATIVES = SNAP.creatives || {}, THUMBS = SNAP.thumbs || {};
+  // Lead counts by group, from the pull: SNAP.leadsrc is {group: counts}. Since the evening of
+  // 2026-09-17 both groups count GHL's own opt-ins (source "GHL"); if the GHL read fails, DTC gets
+  // Hyros ({dtc: Hyros}) and the Lead Magnet goes back to Meta scaled to GHL. Older snapshots carry
+  // a lone Hyros object in SNAP.hyros, and one evening's a lone GHL object in SNAP.leadsrc.
+  var SRC = {};
+  (function () {
+    var ls = SNAP.leadsrc;
+    if (ls && ls.group) SRC[ls.group] = ls;
+    else if (ls) Object.keys(ls).forEach(function (g) { if (ls[g] && ls[g].days) SRC[g] = ls[g]; });
+    else if (SNAP.hyros && SNAP.hyros.group) SRC[SNAP.hyros.group] = SNAP.hyros;
+  })();
   var group = "all";
   try { var saved = localStorage.getItem("jom4-challenge-tab"); if (saved && GROUPS[saved]) group = saved; } catch (e) {}
 
@@ -481,49 +492,51 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     var c = CFG.leadCal[key];
     return GROUPS[key] + " at " + factorPct(key) + " (Meta's " + fInt(c.meta) + " read as GHL's " + fInt(c.actual) + " on " + dayLabel(c.asOf) + ")";
   }
-  function ghlNote() { return "Leads matched to GHL: " + calBasis("lm") + ", " + calBasis("dtc") + "."; }
-  function hyrosNote(t) {
-    if (isGhl()) return "Leads are GHL opt-ins, one per person, pulled " + timeCT(Date.parse(HY.pulled_at)) +
+  function sourceNote(key, t) {
+    var S = SRC[key];
+    if (isGhl(key)) return "Leads are " + label(key) + ", one per person, pulled " + timeCT(Date.parse(S.pulled_at)) +
       ". Meta's Lead event counts " + fInt(t.metaLeads) + ".";
-    var c = CFG.leadCal[HY.group];
-    return "Leads are Hyros, " + HY.model + ", pulled " + timeCT(Date.parse(HY.pulled_at)) +
-      (HY.stale ? " (its last good read: spend has moved on since)" : "") + ". Meta's Lead event counts " +
+    var c = CFG.leadCal[key];
+    return "Leads are Hyros, " + S.model + ", pulled " + timeCT(Date.parse(S.pulled_at)) +
+      (S.stale ? " (its last good read: spend has moved on since)" : "") + ". Meta's Lead event counts " +
       fInt(t.metaLeads) + (c ? "; GHL counted " + fInt(c.actual) + " against Meta's " + fInt(c.meta) + " on " + dayLabel(c.asOf) : "") + ".";
   }
   function sourceOf(key) {
-    return hyrosOn(key) ? GROUPS[key] + (isGhl() ? " from GHL opt-ins" : " from Hyros (" + HY.model + ")")
+    return isGhl(key) ? GROUPS[key] + " from " + label(key)
+      : sourced(key) ? GROUPS[key] + " from Hyros (" + SRC[key].model + ")"
       : GROUPS[key] + " at " + factorPct(key) + " of Meta's number";
   }
   function combinedNote() { return "Leads: " + sourceOf("lm") + "; " + sourceOf("dtc") + "."; }
-  // One group counts its leads from Hyros instead (DTC, Phil 2026-09-17: "that seems to be pretty
-  // accurate", and on Sep 17 Hyros's 142 sat beside GHL's own 147 against Meta's 179). Hyros is read
-  // at campaign level, by day and by campaign, so a scope of whole days adds up its days and a single
+  // A group with a count from the pull (GHL, or Hyros as DTC's fallback) takes it instead of Meta's.
+  // It is read by day and by campaign, so a scope of whole days adds up its days and a single
   // campaign's row takes its own number. It comes from the pull, never from the live Meta read.
-  // Since the evening of 2026-09-17 the DTC source is GHL itself (SNAP.leadsrc, source "GHL"): every
-  // opt-in on the six DTC funnels, one per person, with the Meta ad id from its link, so it also
-  // reaches the ad-level blocks. Hyros is what the pull falls back to when GHL cannot be read.
-  function hyrosOn(key) { return !!(HY && HY.group === key); }
-  function isGhl() { return !!(HY && HY.source === "GHL"); }
-  function ghlAd(a) { return isGhl() && groupOf(a.campaign) === HY.group ? (HY.ads || {})[a.id] || 0 : null; }
-  function hyrosLeads(t, byCampaign) {
-    var keys = Object.keys(byCampaign ? t.hyCampaigns : t.hyDays);
-    if (!HY || !keys.length) return null;
-    var src = byCampaign ? HY.campaigns : HY.days, n = 0, seen = false;
-    keys.forEach(function (k) { if (src[k] != null) { n += src[k]; seen = true; } });
+  // GHL also credits each opt-in to the Meta ad id in its link, so it reaches the ad-level blocks.
+  function sourced(key) { return !!SRC[key]; }
+  function isGhl(key) { return !!(SRC[key] && SRC[key].source === "GHL"); }
+  function label(key) { return SRC[key].label || "GHL opt-ins"; }
+  function ghlAd(a) { var g = groupOf(a.campaign); return isGhl(g) ? (SRC[g].ads || {})[a.id] || 0 : null; }
+  function sourcedLeads(key, keys, byCampaign) {
+    var src = byCampaign ? SRC[key].campaigns : SRC[key].days, n = 0, seen = false;
+    Object.keys(keys).forEach(function (k) { if (src && src[k] != null) { n += src[k]; seen = true; } });
     return seen ? n : null;
   }
   function sum(rows, byCampaign) {
-    var t = { spend: 0, leads: 0, metaLeads: 0, clicks: 0, campaigns: {}, hyDays: {}, hyCampaigns: {}, hyMeta: 0 };
+    var t = { spend: 0, leads: 0, metaLeads: 0, clicks: 0, campaigns: {}, src: {} };
     rows.forEach(function (r) {
+      var g = groupOf(r.name);
       t.spend += r.spend; t.clicks += r.link_clicks; t.metaLeads += r.leads;
-      if (hyrosOn(groupOf(r.name))) { t.hyDays[r.date] = 1; t.hyCampaigns[r.id] = 1; t.hyMeta += r.leads; }
-      else t.leads += r.leads * leadFactor(r.name);
+      if (sourced(g)) {
+        var s = t.src[g] = t.src[g] || { days: {}, camps: {}, meta: 0 };
+        s.days[r.date] = 1; s.camps[r.id] = 1; s.meta += r.leads;
+      } else t.leads += r.leads * leadFactor(r.name);
       if (r.spend > 0) t.campaigns[r.id] = 1;
     });
-    t.hyros = hyrosLeads(t, byCampaign);
-    // No Hyros for this scope (an older snapshot, or a failed read): Meta's own count stands in,
-    // scaled to GHL like every other group, rather than the row reading as no leads at all.
-    t.leads += t.hyros == null ? t.hyMeta * factorFor(HY ? HY.group : null) : t.hyros;
+    // No count from the pull for this scope (a day the live read has and the pull has not): Meta's
+    // own count stands in, scaled to GHL, rather than the row reading as no leads at all.
+    Object.keys(t.src).forEach(function (g) {
+      var s = t.src[g], n = sourcedLeads(g, byCampaign ? s.camps : s.days, byCampaign);
+      t.leads += n == null ? s.meta * factorFor(g) : n;
+    });
     t.nCampaigns = Object.keys(t.campaigns).length;
     return derive(t);
   }
@@ -558,7 +571,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
         var d = el("div"); d.appendChild(el("dt", null, m[0])); d.appendChild(el("dd", null, m[1])); dl.appendChild(d);
       });
       card.appendChild(dl);
-      if (hyrosOn(key)) card.appendChild(el("p", "card-note", hyrosNote(t)));
+      if (sourced(key)) card.appendChild(el("p", "card-note", sourceNote(key, t)));
       else if (CFG.leadCal[key]) card.appendChild(el("p", "card-note", "Leads are Meta's " + fInt(t.metaLeads) + " × " + factorPct(key) + ", to match GHL."));
       if (key === "all") card.appendChild(el("p", "card-note", combinedNote()));
       wrap.appendChild(card);
@@ -604,7 +617,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     fr.appendChild(el("td", null, "Total")); metricCells(fr, total, true); tfoot.appendChild(fr);
     document.getElementById("chart-group").textContent = "· " + GROUPS[group];
     var note = document.getElementById("chart-note");
-    note.textContent = hyrosOn(group) ? "Leads are " + (isGhl() ? "GHL opt-ins, one per person" : "Hyros, " + HY.model) + "; the Meta leads column is Meta's own Lead event."
+    note.textContent = sourced(group) ? "Leads are " + (isGhl(group) ? label(group) + ", one per person" : "Hyros, " + SRC[group].model) + "; the Meta leads column is Meta's own Lead event."
       : CFG.leadCal[group] ? "Leads are Meta's number × " + factorPct(group) + ", to match GHL."
       : group === "all" ? combinedNote() : "";
     note.hidden = !note.textContent;
@@ -674,12 +687,14 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     // Hyros's day buckets count a lead that touched two campaigns once and its campaign rows count
     // it in each, so the rows can sum a little above the group's own total (145 against 142 on
     // 2026-09-17). Saying so beats forcing either number to match the other.
-    document.getElementById("camp-note").textContent = "So far, by campaign" + (isGhl() ? " · " + GROUPS[HY.group] +
-      " rows are GHL opt-ins, credited by the Meta ad id in each opt-in's link" + (HY.no_ad ? "; " + fInt(HY.no_ad) +
-      " came in without a DTC ad id and count only in the " + GROUPS[HY.group] + " total" : "")
-      : HY ? " · " + GROUPS[HY.group] +
-      " rows come from Hyros per campaign, so they can add up a little above the " + GROUPS[HY.group] +
-      " total when one lead touched two campaigns" : "");
+    var parts = ["lm", "dtc"].filter(sourced).map(function (g) {
+      var S = SRC[g];
+      if (!isGhl(g)) return GROUPS[g] + " rows come from Hyros per campaign, so they can add up a little above the " +
+        GROUPS[g] + " total when one lead touched two campaigns";
+      return GROUPS[g] + " rows are " + label(g) + " credited by the Meta ad id in the opt-in's link" +
+        (S.no_ad ? " (" + fInt(S.no_ad) + " without one count only in the total)" : "");
+    });
+    document.getElementById("camp-note").textContent = ["So far, by campaign"].concat(parts).join(" · ");
     var byId = {};
     state.rows.forEach(function (r) {
       if (!inGroup(r, "all") || r.date < CFG.start || r.date > state.through) return;
@@ -731,15 +746,16 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       list.forEach(function (t) { var tr = el("tr"); tr.appendChild(el("td", "name", pageLabel(t.page))); metricCells(tr, t); tbody.appendChild(tr); });
     });
     document.getElementById("pages-note").textContent = "Since " + dayLabel(CFG.start) + " · by the link on each ad · as of " +
-      timeCT(adState.asOf) + (isGhl() ? " · " + GROUPS[HY.group] + " leads are GHL opt-ins by the ad in their link; Lead Magnet" +
-      " leads are Meta's, scaled to GHL" : " · leads are Meta's, scaled to GHL, since Hyros counts by campaign");
+      timeCT(adState.asOf) + " · " + ["lm", "dtc"].map(function (g) {
+        return GROUPS[g] + (isGhl(g) ? " leads are " + label(g) + " by the ad in their link" : " leads are Meta's, scaled to GHL");
+      }).join("; ");
     renderFunnelDays();
     renderPageDays();
   }
 
   // GHL's own count per DTC funnel per day: the six funnel stats screens in one grid.
   function renderFunnelDays() {
-    var panel = document.getElementById("funnel-days"), on = isGhl() && HY.funnels && HY.pages;
+    var HY = SRC.dtc, panel = document.getElementById("funnel-days"), on = isGhl("dtc") && HY.funnels && HY.pages;
     panel.hidden = !on;
     if (!on) return;
     var table = document.getElementById("funnel-days-table"), pages = HY.pages;
@@ -890,9 +906,9 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     ["lm", "dtc"].forEach(function (g) {
       var box = el("div", "best-group"), head = el("div", "best-head");
       head.appendChild(el("h3", null, GROUPS[g]));
-      if (isGhl() && g === HY.group) head.appendChild(el("p", null, "Leads are GHL opt-ins, credited by the Meta ad id in each opt-in's link"));
+      if (isGhl(g)) head.appendChild(el("p", null, "Leads are " + label(g) + ", credited by the Meta ad id in each opt-in's link"));
       else if (CFG.leadCal[g]) head.appendChild(el("p", null, "Leads are Meta's number × " + factorPct(g) + ", per ad" +
-        (hyrosOn(g) ? ": Hyros counts by campaign, not by ad" : "")));
+        (sourced(g) ? ": Hyros counts by campaign, not by ad" : "")));
       box.appendChild(head);
       FORMATS.forEach(function (f) {
         var b = bestFor(g, f[0]), label = el("h4", "best-fmt", f[1]);
@@ -911,37 +927,36 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   function renderMethod() {
     var li = document.getElementById("method-leads");
     li.textContent = "";
-    if (isGhl()) {
+    function add(b, text) { li.appendChild(el("b", null, li.childNodes.length ? b : b.trim())); li.appendChild(document.createTextNode(text)); }
+    function tally(S) {
       var people = 0, subs = 0;
-      Object.keys(HY.days).forEach(function (d) { people += HY.days[d]; });
-      Object.keys(HY.submissions || {}).forEach(function (d) { subs += HY.submissions[d]; });
-      li.appendChild(el("b", null, GROUPS[HY.group] + " leads are GHL's own opt-ins."));
-      li.appendChild(document.createTextNode(" Each DTC landing page (" + HY.pages[0] + " to " + HY.pages[HY.pages.length - 1] +
-        ") is its own GHL funnel, and every pull reads each opt-in on them straight from GHL. A lead is a person, counted once, on the" +
-        " day and in the funnel of their first opt-in, so someone who signs up twice is one lead (" + fInt(subs) + " opt-ins from " +
-        fInt(people) + " people so far). Each opt-in's link carries the Meta ad id, which is how the campaign rows, Best creative and" +
-        " Landing pages credit a lead to an ad" + (HY.no_ad ? "; " + fInt(HY.no_ad) + " arrived without a DTC ad id and count only in the" +
-        " totals and the funnel grid" : "") + ". GHL is read once per pull, so between pulls it does not move while spend does."));
-      li.appendChild(el("b", null, " Lead Magnet leads are matched to GHL."));
-      li.appendChild(document.createTextNode(" Meta's pixel records that opt-in more often than GHL creates a contact, so Meta's count is scaled to" +
-        " what GHL showed: " + calBasis("lm") + ". Each day is rounded on its own, so the daily rows can add up a lead or two away from the total."));
-      return;
+      Object.keys(S.days).forEach(function (d) { people += S.days[d]; });
+      Object.keys(S.submissions || {}).forEach(function (d) { subs += S.submissions[d]; });
+      return fInt(subs) + " submissions from " + fInt(people) + " people so far" +
+        (S.no_ad ? "; " + fInt(S.no_ad) + " arrived without an ad id of the group and count only in the totals" : "");
     }
-    li.appendChild(el("b", null, "Leads are matched to GHL."));
-    li.appendChild(document.createTextNode(" Meta's pixel records the opt-in more often than GHL creates a contact, and by a different amount on each" +
-      " funnel, so Meta's count is scaled to what GHL shows: " + calBasis("lm") + " and " + calBasis("dtc") + ". No Meta figure equals GHL's on its own," +
-      " so the ratio is measured, not derived. Cost per lead and conv. rate use the adjusted whole-lead count, and each day is rounded on its own, so the" +
-      " daily rows can add up a lead or two away from the total. Worth re-checking against GHL as the campaigns run on."));
-    if (!HY) return;
-    var cal = CFG.leadCal[HY.group] || {}, sameDay = HY.days[cal.asOf];
-    li.appendChild(el("b", null, " " + GROUPS[HY.group] + " leads come from Hyros instead."));
-    li.appendChild(document.createTextNode(" Hyros counts the opt-in from its own tracking, " + HY.model + ", so it is measured" +
-      " every day rather than scaled by a ratio fixed on one morning." +
-      (sameDay != null ? " On " + dayLabel(cal.asOf) + " it landed beside GHL's own count: " + fInt(sameDay) + " against GHL's " +
-        fInt(cal.actual) + ", where Meta's Lead event read " + fInt(cal.meta) + "." : "") +
-      " The Meta leads column beside it is always Meta's own Lead event, unscaled, so the two can be compared. Hyros is read at" +
-      " campaign level: the cards, the daily rows and the campaign table use it, while Best creative and Landing pages are ad" +
-      " level and stay on Meta's count scaled to GHL. It is read once per pull, so between pulls it does not move while spend does."));
+    if (isGhl("dtc") || isGhl("lm")) {
+      add("Leads are GHL's own count.", " Every pull reads each opt-in straight from GHL. A lead is a person, counted once, on the" +
+        " day of their first counted opt-in, so someone who signs up twice is one lead. Each opt-in's link carries the Meta ad id," +
+        " which is how the campaign rows, Best creative and Landing pages credit a lead to an ad. GHL is read once per pull, so" +
+        " between pulls it does not move while spend does.");
+    }
+    if (isGhl("dtc")) add(" DTC:", " any opt-in on the six DTC funnels, one per landing page, " + SRC.dtc.pages[0] + " to " +
+      SRC.dtc.pages[SRC.dtc.pages.length - 1] + " (" + tally(SRC.dtc) + ").");
+    if (isGhl("lm")) add(" Lead Magnet:", " the funnel behind " + SRC.lm.pages[0] + " takes the PDF opt-in first and the challenge" +
+      " opt-in second, on the PDF thank-you page; the lead is that second step, which GHL calls Opt in 2 (" + tally(SRC.lm) + ").");
+    ["lm", "dtc"].forEach(function (g) {
+      if (sourced(g)) return;
+      add(" " + GROUPS[g] + " leads are matched to GHL.", " Meta's pixel records the opt-in more often than GHL creates a contact, so" +
+        " Meta's count is scaled to what GHL showed: " + calBasis(g) + ". Each day is rounded on its own, so the daily rows can add up" +
+        " a lead or two away from the total.");
+    });
+    if (sourced("dtc") && !isGhl("dtc")) {
+      var S = SRC.dtc, cal = CFG.leadCal.dtc || {}, sameDay = S.days[cal.asOf];
+      add(" DTC leads come from Hyros instead, because GHL could not be read on this pull.", " Hyros counts the opt-in from its own" +
+        " tracking, " + S.model + (sameDay != null ? "; on " + dayLabel(cal.asOf) + " it read " + fInt(sameDay) + " against GHL's " +
+        fInt(cal.actual) : "") + ". It is read at campaign level, so Best creative and Landing pages stay on Meta's count scaled to GHL.");
+    }
   }
 
   function render() { renderToday(); renderSoFar(); renderBest(); renderPages(); renderDaily(); renderCampaigns(); renderMethod(); }

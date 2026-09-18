@@ -9,8 +9,8 @@ The Claude artifact refreshes itself live through the viewer's Meta Ads connecto
 snapshot is only what shows before (or without) that read. The GitHub Pages copy has no
 connector, so its GitHub Actions workflow runs this script every 30 minutes.
 
-Spend and clicks come from the Graph API; DTC leads are GHL's own opt-ins (GHL_API_KEY or the
-PBI key file), with Hyros as the fallback when GHL cannot be read. With WINDSOR_API_KEY set, the ads' creative details
+Spend and clicks come from the Graph API; leads are GHL's own opt-ins (GHL_API_KEY or the PBI key
+file), with Hyros (DTC) and Meta scaled to GHL (Lead Magnet) as the fallback when GHL cannot be read. With WINDSOR_API_KEY set, the ads' creative details
 (format, image hash, post id) come from Windsor.ai first, which saves Meta calls; without it,
 or if Windsor fails, Meta supplies them as before.
 """
@@ -51,23 +51,34 @@ URL_DAYS = 7                       # trailing days of ad-by-day rows pulled for 
 SITE_URL = "https://gostrategicmarketing-deployment.github.io/pbi-jom4-challenge-d856d9d0ad"
 HYROS_URL = "https://api.hyros.com/v1/api/v1.0/attribution"
 HYROS_GROUP = "dtc"                # the group the page headlines on Hyros (Phil, 2026-09-17)
-# GHL counts the DTC opt-ins itself (Phil, 2026-09-17 evening: the PBI location's Private Integration
-# Token, "to pull the stats for the challenge from GHL for opt ins each day"). One funnel per DTC angle
-# page; the pull credits each opt-in to the funnel it happened on, not to its form, because every page
-# also embeds the FB Ads 1 form (a pop-up) and one of those was submitted on FB Ads 5 on day one.
+# GHL counts the opt-ins itself (Phil, 2026-09-17 evening: the PBI location's Private Integration Token,
+# "to pull the stats for the challenge from GHL for opt ins each day"). Each opt-in is credited to the
+# funnel it happened on, not to its form: every DTC page also embeds the FB Ads 1 form (a pop-up), and
+# one of those was submitted on FB Ads 5 on day one.
 GHL_KEY_FILE = Path.home() / "Documents/Claude/Projects/PBI 2/ghl_key.txt"
 GHL_URL = "https://services.leadconnectorhq.com"
 GHL_LOCATION = "GmBTEcbq9PN9YY99gncv"
-GHL_GROUP = "dtc"
 GHL_SINCE = "2026-08-27"           # the funnels' creation day: earlier test opt-ins still mark a person as seen
-GHL_FUNNELS = [                    # (funnel id, the page its ads link to, its opt-in form); /newclientsN checked 2026-09-17
-    ("rzT7SyOSpywdlOic3do4", "/newclients1", "gsQ4RSn5ZMOL8CmwgPJK"),
-    ("pTOIcfaaQCUKlEHMGZq9", "/newclients2", "eixtVRDXqVk8AS8wcpGP"),
-    ("kd8Lcj1tvn1IlC1E6Kh4", "/newclients3", "jGWovQ6bJAkeULv89Krt"),
-    ("4BuDZTwD8y8bWqgcZl9v", "/newclients4", "FFRagASSSe0UFQcupPvZ"),
-    ("CIN9xdqqyVUZ26rde44q", "/newclients5", "64TDlIPe74xrhR9SbjdQ"),
-    ("QfrPvC6u3cq7zRX2dxjP", "/newclients6", "FNIl1Wnb3rsEx1nla0mU"),
-]
+GHL_GROUPS = {
+    # One funnel per DTC angle page, (funnel id, the page its ads link to, its opt-in form); any opt-in
+    # on the funnel counts. /newclientsN -> funnel checked 2026-09-17 by fetching each page.
+    "dtc": {"step": None, "model": "first opt-in per person", "label": "GHL opt-ins", "funnels": [
+        ("rzT7SyOSpywdlOic3do4", "/newclients1", "gsQ4RSn5ZMOL8CmwgPJK"),
+        ("pTOIcfaaQCUKlEHMGZq9", "/newclients2", "eixtVRDXqVk8AS8wcpGP"),
+        ("kd8Lcj1tvn1IlC1E6Kh4", "/newclients3", "jGWovQ6bJAkeULv89Krt"),
+        ("4BuDZTwD8y8bWqgcZl9v", "/newclients4", "FFRagASSSe0UFQcupPvZ"),
+        ("CIN9xdqqyVUZ26rde44q", "/newclients5", "64TDlIPe74xrhR9SbjdQ"),
+        ("QfrPvC6u3cq7zRX2dxjP", "/newclients6", "FNIl1Wnb3rsEx1nla0mU"),
+    ]},
+    # "PCFU | Sept 2026 | Prelaunch | Paid", behind /fallsessionplans: a two-step opt-in, the PDF form on
+    # the landing page and then a second form on the PDF thank-you page. Phil, 2026-09-17: the lead is
+    # that second step, the one GHL names "Opt in 2" (a single page, no split test; the hand-read 186 of
+    # that afternoon was this count). Only its own form has ever been submitted there.
+    "lm": {"step": "438bd0ab-e87c-4797-b0b9-f497e912bfae", "model": "the Opt in 2 step, one per person",
+           "label": "GHL Opt in 2 sign-ups", "funnels": [
+        ("hTYEAkpzET9QE2oRFGce", "/fallsessionplans", "EDTzBgd6y72Tp5cKCvE3"),
+    ]},
+}
 
 SKELETON = """<!doctype html>
 <html lang="en">
@@ -291,8 +302,8 @@ def pull_ads(today, full_listing, ghl=None):
         print(f"warning: {len(unmapped)} spending ads have no creative (${sum(a['spend'] for a in unmapped):,.2f}); "
               "they cannot rank as best creative", file=sys.stderr)
 
-    # Same ranking as the page: leads (GHL's own opt-ins per ad for DTC when the GHL read worked,
-    # otherwise Meta scaled to GHL per group), then cost per lead, then spend; plus the top by link
+    # Same ranking as the page: leads (GHL's own opt-ins per ad when the GHL read worked, otherwise
+    # Meta scaled to GHL per group), then cost per lead, then spend; plus the top by link
     # clicks, which the page backfills with when few ads have leads.
     wanted = set()
     for g in ("lm", "dtc"):
@@ -303,7 +314,8 @@ def pull_ads(today, full_listing, ghl=None):
             factor = LEAD_FACTOR.get(g, 1)
 
             def rank(a):
-                adj = ghl["ads"].get(a["id"], 0) if ghl and g == ghl["group"] else a["leads"] * factor
+                src = (ghl or {}).get(g)
+                adj = src["ads"].get(a["id"], 0) if src else a["leads"] * factor
                 return (-adj, a["spend"] / adj if adj else float("inf"), -a["spend"])
             picks = sorted(block, key=rank)[:PREVIEWS_PER_BLOCK]
             picks += sorted(block, key=lambda a: (-a["link_clicks"], -a["spend"]))[:5]
@@ -479,97 +491,109 @@ def ghl_get(path, params, key):
 
 
 def pull_ghl(today):
-    """DTC opt-ins straight from GHL's form submissions: by day, by funnel and by ad.
+    """Opt-ins straight from GHL's form submissions, per group: by day, by funnel and by ad.
 
-    A lead is a PERSON, counted once, on the Central day and in the funnel of their first opt-in
-    into any of the six DTC funnels. Nine people opted in twice on day one (195 submissions, 186
-    people), and a double opt-in is one registrant for the challenge. Days, funnels and ads
-    therefore all add up to the same total.
+    A lead is a PERSON, counted once per group, on the Central day and in the funnel of their first
+    counted opt-in (for the Lead Magnet, their first "Opt in 2"). Nine people opted in twice to DTC
+    on day one (195 submissions, 186 people), and a double opt-in is one registrant for the
+    challenge. Days, funnels and ads therefore all add up to the group's total. Someone in both
+    groups counts once in each; two people were on day one.
 
-    The ad is the `h_ad_id` Meta fills into the funnel link (96% of day-one opt-ins carried a JOM4
-    DTC ad id; the rest came in direct or organically). An opt-in with no DTC ad id counts in the
-    day and the funnel but sits in no campaign or ad row, and the page says how many.
+    The ad is the `h_ad_id` Meta fills into the funnel link, which GHL records with the submission
+    (96% of day-one DTC opt-ins and 92% of Opt in 2s carried one). An opt-in with no ad id of its
+    group counts in the day and the funnel but sits in no campaign or ad row, and the page says how
+    many.
 
     Only aggregate counts leave this function: no names, emails or phones reach the snapshot or the
-    public page.
+    public page. Returns {group: counts}, or None if any read failed: half a count is worse than
+    the fallback.
     """
     key = ghl_key()
     if not key:
-        print("warning: no GHL key (GHL_API_KEY or the PBI key file); DTC leads fall back to Hyros", file=sys.stderr)
+        print("warning: no GHL key (GHL_API_KEY or the PBI key file); leads fall back to Hyros and Meta", file=sys.stderr)
         return None
-    page_of = {fid: page for fid, page, _ in GHL_FUNNELS}
+    where = {fid: (g, page) for g, cfg in GHL_GROUPS.items() for fid, page, _ in cfg["funnels"]}
     until = (datetime.strptime(today, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    subs = {}
-    for form in sorted({f for _, _, f in GHL_FUNNELS}):
+    subs = {g: {} for g in GHL_GROUPS}
+    for form in sorted({f for cfg in GHL_GROUPS.values() for _, _, f in cfg["funnels"]}):
         page_no = 1
         while True:
             data = ghl_get("/forms/submissions", {"locationId": GHL_LOCATION, "formId": form, "limit": "100",
                                                   "page": str(page_no), "startAt": GHL_SINCE, "endAt": until}, key)
             if data is None or not isinstance(data.get("submissions"), list):
-                return None  # half a count is worse than the fallback
+                return None
             for s in data["submissions"]:
                 others = s.get("others") or {}
-                funnel = (others.get("funneEventData") or {}).get("funnel_id")  # sic: GHL's spelling
-                if funnel not in page_of or not s.get("createdAt"):
+                event = others.get("funneEventData") or {}  # sic: GHL's spelling
+                if event.get("funnel_id") not in where or not s.get("createdAt"):
+                    continue
+                g, page = where[event["funnel_id"]]
+                if GHL_GROUPS[g]["step"] and event.get("funnel_step_id") != GHL_GROUPS[g]["step"]:
                     continue
                 params = (others.get("eventData") or {}).get("url_params") or {}
-                subs[s["id"]] = {"who": s.get("contactId") or s["id"], "at": s["createdAt"],
-                                 "page": page_of[funnel], "ad": str(params.get("h_ad_id") or "")}
+                subs[g][s["id"]] = {"who": s.get("contactId") or s["id"], "at": s["createdAt"],
+                                    "page": page, "ad": str(params.get("h_ad_id") or "")}
             if not (data.get("meta") or {}).get("nextPage"):
                 break
             page_no += 1
 
-    first, raw = {}, {}
-    for s in sorted(subs.values(), key=lambda s: s["at"]):
-        day = datetime.fromisoformat(s["at"].replace("Z", "+00:00")).astimezone(TZ).strftime("%Y-%m-%d")
-        if START <= day <= today:
-            raw[day] = raw.get(day, 0) + 1
-        if s["who"] not in first:
-            first[s["who"]] = {**s, "day": day}
-    # Every day of the window is present, zeros included: the page reads a missing day as "no GHL
-    # read" and would put Meta's scaled count in its place.
-    days, funnels, ads = {}, {}, {}
+    window = []
     d = datetime.strptime(START, "%Y-%m-%d")
     while d.strftime("%Y-%m-%d") <= today:
-        days[d.strftime("%Y-%m-%d")] = 0
+        window.append(d.strftime("%Y-%m-%d"))
         d += timedelta(days=1)
-    for p in first.values():
-        if not START <= p["day"] <= today:
-            continue  # first seen before the campaigns ran: the team's own test opt-ins
-        days[p["day"]] = days.get(p["day"], 0) + 1
-        by_day = funnels.setdefault(p["page"], {})
-        by_day[p["day"]] = by_day.get(p["day"], 0) + 1
-        ad = p["ad"] if p["ad"].isdigit() else ""  # Meta sometimes passes {{ad.id}} through unfilled
-        ads[ad] = ads.get(ad, 0) + 1
-    return {
-        "source": "GHL",
-        "group": GHL_GROUP,
-        "model": "first opt-in per person",
-        "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"),
-        "days": days,
-        "submissions": raw,
-        "funnels": funnels,
-        "pages": [page for _, page, _ in GHL_FUNNELS],
-        "ads": ads,  # "" = no ad id; settled against the Meta ad list in credit_campaigns()
-    }
+    out = {}
+    for g, cfg in GHL_GROUPS.items():
+        first, raw = {}, {}
+        for s in sorted(subs[g].values(), key=lambda s: s["at"]):
+            day = datetime.fromisoformat(s["at"].replace("Z", "+00:00")).astimezone(TZ).strftime("%Y-%m-%d")
+            if START <= day <= today:
+                raw[day] = raw.get(day, 0) + 1
+            if s["who"] not in first:
+                first[s["who"]] = {**s, "day": day}
+        # Every day of the window is present, zeros included: the page reads a missing day as "no
+        # GHL read" and would put Meta's scaled count in its place.
+        days, funnels, ads = {day: 0 for day in window}, {}, {}
+        for p in first.values():
+            if not START <= p["day"] <= today:
+                continue  # first seen before the campaigns ran: the team's own test opt-ins
+            days[p["day"]] += 1
+            by_day = funnels.setdefault(p["page"], {})
+            by_day[p["day"]] = by_day.get(p["day"], 0) + 1
+            ad = p["ad"] if p["ad"].isdigit() else ""  # Meta sometimes passes {{ad.id}} through unfilled
+            ads[ad] = ads.get(ad, 0) + 1
+        out[g] = {
+            "source": "GHL",
+            "group": g,
+            "model": cfg["model"],
+            "label": cfg["label"],
+            "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"),
+            "days": days,
+            "submissions": raw,
+            "funnels": funnels,
+            "pages": [page for _, page, _ in cfg["funnels"]],
+            "ads": ads,  # "" = no ad id; settled against the Meta ad list in credit_campaigns()
+        }
+    return out
 
 
 def credit_campaigns(ghl, ads, rows):
-    """Put each GHL opt-in's ad into its DTC campaign; anything else is counted as unattributed."""
+    """Put each GHL opt-in's ad into its campaign; anything else is counted as unattributed."""
     camp_of_ad = {a["id"]: a["campaign"] for a in ads}
     id_of_name = {r["name"]: r["id"] for r in rows}
-    # Every DTC campaign gets a row, zero included, for the same reason as the zero days in pull_ghl().
-    ghl["campaigns"] = {r["id"]: 0 for r in rows if group_of(r["name"]) == GHL_GROUP}
-    ghl["no_ad"], kept = 0, {}
-    for ad, n in ghl.pop("ads").items():
-        name = camp_of_ad.get(ad)
-        if name and group_of(name) == GHL_GROUP and name in id_of_name:
-            cid = id_of_name[name]
-            ghl["campaigns"][cid] = ghl["campaigns"].get(cid, 0) + n
-            kept[ad] = n
-        else:
-            ghl["no_ad"] += n  # no ad id, or an ad outside the DTC campaigns (a stray Lead Magnet click)
-    ghl["ads"] = kept
+    for g, src in ghl.items():
+        # Every campaign of the group gets a row, zero included, for the same reason as the zero days.
+        src["campaigns"] = {r["id"]: 0 for r in rows if group_of(r["name"]) == g}
+        src["no_ad"], kept = 0, {}
+        for ad, n in src.pop("ads").items():
+            name = camp_of_ad.get(ad)
+            if name and group_of(name) == g and name in id_of_name:
+                cid = id_of_name[name]
+                src["campaigns"][cid] = src["campaigns"].get(cid, 0) + n
+                kept[ad] = n
+            else:
+                src["no_ad"] += n  # no ad id, or an ad from the other group's campaigns
+        src["ads"] = kept
     return ghl
 
 
@@ -664,7 +688,8 @@ def pull(full_listing=True):
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
-    # DTC leads: GHL's own opt-ins; Hyros only if the GHL read failed, so the page never goes blank.
+    # Leads: GHL's own opt-ins for both groups. If the GHL read fails, DTC falls back to Hyros and the
+    # Lead Magnet to Meta scaled to GHL, so the page never goes blank.
     ghl = pull_ghl(today)
     hyros = None if ghl else pull_hyros(today, rows)
     ads, creatives, thumbs, (since, ad_days) = pull_ads(today, full_listing, ghl)
@@ -673,7 +698,8 @@ def pull(full_listing=True):
     url_days = sorted(published_url_days(since) + by_page(ad_days, creatives),
                       key=lambda t: (t["date"], t["page"]))
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
-            "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros, "leadsrc": ghl or hyros,
+            "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros,
+            "leadsrc": ghl or ({HYROS_GROUP: hyros} if hyros else None),
             "url_days": url_days, "url_pulled_from": since}
 
 
@@ -713,12 +739,13 @@ def main():
     leads = sum(r["leads"] for r in snap["rows"])
     print(f"{len(snap['rows'])} campaign-day rows, ${spend:,.2f} spent, {leads:.0f} Meta leads, pulled {snap['pulled_at']}")
     print(f"{len(snap['ads'])} ads with delivery, {len(snap['creatives'])} ads mapped to a format, {len(snap['thumbs'])} previews baked")
-    gh = snap.get("leadsrc") if (snap.get("leadsrc") or {}).get("source") == "GHL" else None
-    if gh:
-        print(f"GHL ({gh['group'].upper()}, {gh['model']}): {sum(gh['days'].values())} people from "
+    for gh in (snap.get("leadsrc") or {}).values():
+        if gh.get("source") != "GHL":
+            continue
+        print(f"GHL {gh['group'].upper()} ({gh['model']}): {sum(gh['days'].values())} people from "
               f"{sum(gh['submissions'].values())} opt-ins over {len(gh['days'])} days; "
               + ", ".join(f"{p} {sum(gh['funnels'].get(p, {}).values())}" for p in gh["pages"])
-              + f"; {sum(gh['campaigns'].values())} credited to a DTC campaign, {gh['no_ad']} with no DTC ad")
+              + f"; {sum(gh['campaigns'].values())} credited to a campaign, {gh['no_ad']} with no ad of the group")
     hy = snap.get("hyros")
     if hy:
         print(f"Hyros ({hy['group'].upper()}, {hy['model']}): {sum(hy['days'].values()):.0f} leads over "
