@@ -370,7 +370,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   <section class="method" aria-labelledby="method-h">
     <h2 id="method-h">How these numbers work</h2>
     <ul>
-      <li><b>Leads</b> are counted per group as set out below. <b>Meta leads</b> is Meta's Lead standard event from the funnel pixel, as Meta attributes it under each ad set's attribution setting, shown unscaled for comparison. <b>Cost per lead</b> is spend divided by leads, against PBI's $15 cold cost-per-lead target.</li>
+      <li><b>Leads</b> are counted per group as set out below. <b>Meta leads</b> is Meta's Lead standard event from the funnel pixel, as Meta attributes it under each ad set's attribution setting, shown unscaled for comparison. <b>Cost per lead</b> is spend divided by leads, against this campaign's $20 cost-per-lead target (set 2026-09-19; PBI's standing cold target is $15).</li>
       <li><b>Link clicks</b> only, never all clicks. <b>Cost per click</b> is spend divided by link clicks; <b>conv. rate</b> is leads divided by link clicks.</li>
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
       <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
@@ -392,7 +392,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     account: "1059453438345899",
     start: "2026-09-17",
     tz: "America/Chicago",
-    target: 15,
+    target: 20,
     // Meta's funnel pixel records the Lead event more often than GHL creates contacts, so Meta's
     // count is scaled to GHL per group. Checked first (2026-09-17) that no Meta action equals GHL's
     // number and that the gap is not Meta double counting: the account-level read matches the sum of
@@ -547,8 +547,8 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   // ---------- render ----------
   function chipFor(cpl) {
     if (cpl == null) return { tone: "none", text: "No leads yet" };
-    if (cpl <= CFG.target) return { tone: "good", text: "✓ At or under $15 target" };
-    return { tone: "warn", text: "▲ Over $15 target" };
+    if (cpl <= CFG.target) return { tone: "good", text: "✓ At or under $" + CFG.target + " target" };
+    return { tone: "warn", text: "▲ Over $" + CFG.target + " target" };
   }
 
   function renderCards(containerId, rowsFor, allClass) {
@@ -667,7 +667,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     });
     var ty = y(CFG.target);
     svg.appendChild(s("line", { x1: m.l, x2: W - m.r, y1: ty, y2: ty, "class": "target" }));
-    svg.appendChild(s("text", { x: W - m.r, y: ty - 6, "text-anchor": "end", "class": "target-label" }, "$15 target"));
+    svg.appendChild(s("text", { x: W - m.r, y: ty - 6, "text-anchor": "end", "class": "target-label" }, "$" + CFG.target + " target"));
   }
 
   function showTip(t, cx, cy, W) {
