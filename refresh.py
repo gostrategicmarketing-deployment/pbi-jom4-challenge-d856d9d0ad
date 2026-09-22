@@ -38,6 +38,18 @@ ACCOUNT = "act_1059453438345899"   # JOM4, America/Chicago
 START = "2026-09-17"               # first delivery day of the challenge campaigns
 TZ = ZoneInfo("America/Chicago")
 NAME_FILTER = "September"          # the page classifies further, by name (see groupOf in the template)
+# Campaigns included regardless of NAME_FILTER; maps campaign_id → (group, name).
+# Add here when a challenge campaign's name lacks the normal marker (e.g. a CBO launched mid-challenge
+# without "September" in its name).
+EXTRA_CAMPAIGNS = {
+    "120251163829380642": ("lm", "TOF | LM Untested Statics | CBO | start 9-21"),
+}
+_EXTRA_NAME_GROUP = {name: g for g, name in EXTRA_CAMPAIGNS.values()}
+
+
+def _extra_campaign_filter():
+    """Filtering that matches EXTRA_CAMPAIGNS by id, for a second pass after the NAME_FILTER pass."""
+    return [{"field": "campaign.id", "operator": "IN", "value": list(EXTRA_CAMPAIGNS)}] if EXTRA_CAMPAIGNS else None
 # (Meta count, GHL count) per group, mirrors CFG.leadCal; here it only decides which previews to bake
 LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
 LEAD_FACTOR = {g: actual / meta for g, (meta, actual) in LEAD_CAL.items()}
@@ -275,9 +287,12 @@ def paged(url, params):
 
 
 def group_of(campaign):
-    if "lead magnet" in campaign.lower() and "september 2026" in campaign.lower():
+    if campaign in _EXTRA_NAME_GROUP:
+        return _EXTRA_NAME_GROUP[campaign]
+    n = campaign.lower()
+    if ("lead magnet" in n or "lm retargeting" in n) and "september 2026" in n:
         return "lm"
-    if "september dtc" in campaign.lower():
+    if "september dtc" in n:
         return "dtc"
     return None
 
@@ -285,19 +300,20 @@ def group_of(campaign):
 def pull_ads(today, full_listing, ghl=None):
     """Ad-level totals since START, every ad's format, and small previews of the likely winners."""
     base = f"https://graph.facebook.com/v21.0/{ACCOUNT}"
-    name_filter = {"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}
-    ads = []
-    for r in paged(f"{base}/insights", {
-        "level": "ad",
-        "fields": "ad_id,ad_name,campaign_name,spend,actions",
-        "time_range": json.dumps({"since": START, "until": today}),
-        "filtering": json.dumps([name_filter]),
-        "limit": "500",
-        "access_token": token(),
-    }):
+    def _ad_insights_params(filtering):
+        return {"level": "ad", "fields": "ad_id,ad_name,campaign_name,spend,actions",
+                "time_range": json.dumps({"since": START, "until": today}),
+                "filtering": json.dumps(filtering), "limit": "500", "access_token": token()}
+    def _parse_ad(r):
         acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
-        ads.append({"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"], "spend": float(r["spend"]),
-                    "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)})
+        return {"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"],
+                "spend": float(r["spend"]), "link_clicks": acts.get("link_click", 0.0),
+                "leads": acts.get("lead", 0.0)}
+    ads = [_parse_ad(r) for r in paged(f"{base}/insights",
+           _ad_insights_params([{"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}]))]
+    if _extra_campaign_filter():
+        ads += [_parse_ad(r) for r in paged(f"{base}/insights",
+                _ad_insights_params(_extra_campaign_filter()))]
     ad_days = pull_ad_days(today)
 
     # Format for every ad in these campaigns, not just the ones that have spent, so a live
@@ -307,14 +323,22 @@ def pull_ads(today, full_listing, ghl=None):
     listing = []
     # One listing per group name: the bare "September" filter would also page through every
     # September 2025 ad in the account.
+    ad_statuses = ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "ARCHIVED", "PENDING_REVIEW",
+                   "IN_PROCESS", "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED"]
     for group_name in ("September 2026 Lead Magnet", "September DTC") if full_listing else ():
         listing += paged(f"{base}/ads", {
             "fields": "id," + CREATIVE_FIELDS,
             "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": group_name},
-                                     {"field": "ad.effective_status", "operator": "IN", "value":
-                                      ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "ARCHIVED", "PENDING_REVIEW",
-                                       "IN_PROCESS", "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED"]}]),
+                                     {"field": "ad.effective_status", "operator": "IN", "value": ad_statuses}]),
             "limit": "50",  # 100 per page trips Meta's "reduce the amount of data" on page two
+            "access_token": token(),
+        })
+    for cid in (EXTRA_CAMPAIGNS if full_listing else ()):
+        listing += paged(f"{base}/ads", {
+            "fields": "id," + CREATIVE_FIELDS,
+            "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": [cid]},
+                                     {"field": "ad.effective_status", "operator": "IN", "value": ad_statuses}]),
+            "limit": "50",
             "access_token": token(),
         })
     def keep(ad):
@@ -709,6 +733,17 @@ def pull_ad_days(today):
         "access_token": token(),
     }):
         rows.append((r["ad_id"], r["date_start"], float(r.get("inline_link_clicks") or 0), float(r["spend"])))
+    if _extra_campaign_filter():
+        for r in paged(f"https://graph.facebook.com/v21.0/{ACCOUNT}/insights", {
+            "level": "ad",
+            "fields": "ad_id,spend,inline_link_clicks",
+            "time_range": json.dumps({"since": since, "until": today}),
+            "time_increment": "1",
+            "filtering": json.dumps(_extra_campaign_filter()),
+            "limit": "500",
+            "access_token": token(),
+        }):
+            rows.append((r["ad_id"], r["date_start"], float(r.get("inline_link_clicks") or 0), float(r["spend"])))
     return since, rows
 
 
@@ -758,8 +793,9 @@ def pull(full_listing=True):
         "limit": "500",
         "access_token": token(),
     }
-    url = f"https://graph.facebook.com/v21.0/{ACCOUNT}/insights"
+    insights_url = f"https://graph.facebook.com/v21.0/{ACCOUNT}/insights"
     rows = []
+    url = insights_url
     while url:
         data = graph(url, params)
         for r in data["data"]:
@@ -780,6 +816,30 @@ def pull(full_listing=True):
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
+    # Campaigns not matched by NAME_FILTER (see EXTRA_CAMPAIGNS)
+    if EXTRA_CAMPAIGNS:
+        for r in paged(insights_url, {
+            "level": "campaign",
+            "fields": "campaign_id,campaign_name,spend,actions,action_values",
+            "time_range": json.dumps({"since": START, "until": today}),
+            "time_increment": "1",
+            "filtering": json.dumps([{"field": "campaign.id", "operator": "IN",
+                                      "value": list(EXTRA_CAMPAIGNS)}]),
+            "limit": "500",
+            "access_token": token(),
+        }):
+            acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
+            vals = {a["action_type"]: float(a["value"]) for a in r.get("action_values", [])}
+            rows.append({
+                "date": r["date_start"],
+                "id": r["campaign_id"],
+                "name": r["campaign_name"],
+                "spend": float(r["spend"]),
+                "link_clicks": acts.get("link_click", 0.0),
+                "leads": acts.get("lead", 0.0),
+                "purchases": acts.get("offsite_conversion.fb_pixel_purchase", 0.0),
+                "revenue": vals.get("offsite_conversion.fb_pixel_purchase", 0.0),
+            })
     # Leads: GHL's own opt-ins for both groups. If the GHL read fails, DTC falls back to Hyros and the
     # Lead Magnet to Meta scaled to GHL, so the page never goes blank.
     ghl = pull_ghl(today)
@@ -792,7 +852,8 @@ def pull(full_listing=True):
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
             "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros,
             "leadsrc": ghl or ({HYROS_GROUP: hyros} if hyros else None),
-            "url_days": url_days, "url_pulled_from": since}
+            "url_days": url_days, "url_pulled_from": since,
+            "extraGroups": {name: g for g, name in EXTRA_CAMPAIGNS.values()}}
 
 
 DAILY_COLUMNS = [

@@ -373,7 +373,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Leads</b> are counted per group as set out below. <b>Meta leads</b> is Meta's Lead standard event from the funnel pixel, as Meta attributes it under each ad set's attribution setting, shown unscaled for comparison. <b>Cost per lead</b> is spend divided by leads, against this campaign's $20 cost-per-lead target (set 2026-09-19; PBI's standing cold target is $15).</li>
       <li><b>Link clicks</b> only, never all clicks. <b>Cost per click</b> is spend divided by link clicks; <b>conv. rate</b> is leads divided by link clicks.</li>
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
-      <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
+      <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet" or "September 2026 ... LM Retargeting", plus any campaign listed in the snapshot's <code>extraGroups</code> map as "lm"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
       <li id="method-leads"></li>
       <li><b>Best creative</b> is a running tally per creative since Sep 17, the first day these campaigns ran, not a view of today. The same image or video often runs under several ads (rebuilt campaigns, duplicated ad sets, replacement ads), so every ad that used it is added up, matched on Meta's image hash or video id, including ads that have since been paused or replaced; <b>Ads</b> on each card says how many. The top 10 images and top 10 videos are shown for each group, among creatives with at least $20 spent in total: most leads first, then the lower cost per lead, then the higher spend. The name and preview are the creative's highest-spending ad. Where leads are Meta's count scaled to GHL they keep their decimals, since rounding one ad down would erase ads with a single lead. When fewer than ten creatives in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks a creative under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li><b>Landing pages</b> splits the same numbers by the page each ad sends people to, taken from the ad's own link. One ad set can point its ads at several pages, so the split is made ad by ad, and the query string (the tracking tags) is ignored. The day grid is from the last pull, not the live read, and keeps every day since Sep 17: each pull re-reads the last week from Meta and carries the older days forward.</li>
@@ -417,7 +417,10 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   var HOSTED = /\.github\.io$/.test(location.hostname);
 
   function groupOf(name) {
+    var ex = SNAP.extraGroups;
+    if (ex && ex[name]) return ex[name];
     if (/lead magnet/i.test(name) && /september 2026/i.test(name)) return "lm";
+    if (/lm retargeting/i.test(name) && /september 2026/i.test(name)) return "lm";
     if (/september dtc/i.test(name)) return "dtc";
     return null;
   }
