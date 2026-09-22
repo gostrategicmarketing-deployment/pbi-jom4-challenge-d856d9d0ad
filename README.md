@@ -4,6 +4,15 @@ Meta cost per Lead event for the September 2026 5-Day Challenge ads in the JOM4 
 Lead Magnet, DTC and all campaigns combined, for today, so far, and day by day, with link clicks
 broken out by landing page.
 
+Scope is **every campaign delivering in the JOM4 account since the start date, minus an explicit
+exclusion list**: `EXCLUDED_CAMPAIGNS` in `refresh.py` is the only way spend leaves the report
+(currently just the $17 MOF VIP upsell), and `CAMPAIGN_GROUP` puts a campaign in a group its name
+does not announce. Both are keyed by campaign **id**, so renaming a campaign in Meta changes
+nothing. A campaign matching no group rule lands in "other": its spend and clicks count in the
+combined totals and it gets its own row, the pull warns about it with its id, and `daily.csv`
+carries an `Unclassified spend` column that is normally `0.00`. Do not reintroduce a campaign-name
+filter on the Meta reads: that is what quietly dropped $804 of spend by 2026-09-22.
+
 `url_days.json` is deployed beside the page and read back by the next run: it is where the
 landing-page day grid keeps the days that have dropped out of the window each pull re-reads.
 

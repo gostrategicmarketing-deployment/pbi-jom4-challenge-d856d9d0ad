@@ -37,19 +37,29 @@ LOGOS = [HERE / "brand/pbi-logo-reversed.png",
 ACCOUNT = "act_1059453438345899"   # JOM4, America/Chicago
 START = "2026-09-17"               # first delivery day of the challenge campaigns
 TZ = ZoneInfo("America/Chicago")
-NAME_FILTER = "September"          # the page classifies further, by name (see groupOf in the template)
-# Campaigns included regardless of NAME_FILTER; maps campaign_id → (group, name).
-# Add here when a challenge campaign's name lacks the normal marker (e.g. a CBO launched mid-challenge
-# without "September" in its name).
-EXTRA_CAMPAIGNS = {
-    "120251163829380642": ("lm", "TOF | LM Untested Statics | CBO | start 9-21"),
+# Everything delivering in this account since START belongs to the challenge, so every read below
+# takes the whole account and nothing is filtered by campaign name. Filtering by name is what lost
+# $804 of spend between 2026-09-21 and 2026-09-22 (two CBOs launched without "September" in their
+# name, and three campaigns whose names no group rule matched), silently and with no warning.
+#
+# Two maps, both keyed by campaign id so renaming a campaign in Meta changes nothing:
+#   EXCLUDED_CAMPAIGNS  drops a campaign from the report outright.
+#   CAMPAIGN_GROUP      puts a campaign in the group its name does not announce.
+# A campaign in neither, matching no name rule, lands in "other": it keeps its own row and its spend
+# and clicks count in the combined totals, so nothing can go missing quietly again.
+EXCLUDED_CAMPAIGNS = {
+    # The $17 VIP upsell sells to people already registered: a paid step, not a challenge lead
+    # source, and its spend against challenge leads would read as a worse cost per lead than it is.
+    # Phil, 2026-09-22: "MOF VIP should not count. But everything else should".
+    "120251185599730642": "MOF | September 2026 | VIP",
 }
-_EXTRA_NAME_GROUP = {name: g for g, name in EXTRA_CAMPAIGNS.values()}
-
-
-def _extra_campaign_filter():
-    """Filtering that matches EXTRA_CAMPAIGNS by id, for a second pass after the NAME_FILTER pass."""
-    return [{"field": "campaign.id", "operator": "IN", "value": list(EXTRA_CAMPAIGNS)}] if EXTRA_CAMPAIGNS else None
+CAMPAIGN_GROUP = {
+    "120251163829380642": "lm",   # TOF | LM Untested Statics | CBO | start 9-21
+    "120251163862490642": "dtc",  # TOF | DTC Untested Grids | CBO | start 9-21 -> /newclients1
+    "120251165123780642": "dtc",  # TOF | DTC Ad #79 Carousel | CBO | 9-21 - Copy -> /newclients1
+    "120251185727520642": "dtc",  # TOF | September 2026 Warm Audience -> /newclients, GHL funnel FB Ads 6
+    "120251185754800642": "dtc",  # MOF | September 2026 Retargeting Viewers -> /newclients1
+}
 # (Meta count, GHL count) per group, mirrors CFG.leadCal; here it only decides which previews to bake
 LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
 LEAD_FACTOR = {g: actual / meta for g, (meta, actual) in LEAD_CAL.items()}
@@ -180,7 +190,7 @@ def windsor_creatives(today, ad_ids):
         "date_to": today,
         "fields": "account_id,ad_id,creative_id,object_type,image_hash,effective_object_story_id,link,spend",
         "select_accounts": ACCOUNT.removeprefix("act_"),
-        "filter": json.dumps([["campaign", "contains", NAME_FILTER], "and", ["spend", "gt", 0]]),
+        "filter": json.dumps([["spend", "gt", 0]]),
     })
     out = {}
     for r in rows or ():
@@ -286,34 +296,44 @@ def paged(url, params):
     return out
 
 
-def group_of(campaign):
-    if campaign in _EXTRA_NAME_GROUP:
-        return _EXTRA_NAME_GROUP[campaign]
-    n = campaign.lower()
+def group_of(cid, name):
+    """"lm", "dtc", "other", or None for a campaign this report leaves out entirely.
+
+    Mirrors groupOf() in the template. The id maps win over the name rules, and an unrecognised
+    campaign is "other" rather than nothing: it counts in the combined totals and shows its own row.
+    """
+    if cid in EXCLUDED_CAMPAIGNS:
+        return None
+    if cid in CAMPAIGN_GROUP:
+        return CAMPAIGN_GROUP[cid]
+    n = (name or "").lower()
     if ("lead magnet" in n or "lm retargeting" in n) and "september 2026" in n:
         return "lm"
     if "september dtc" in n:
         return "dtc"
-    return None
+    return "other"
+
+
+def groups_of(rows):
+    """{campaign id: group} over a set of campaign-day rows."""
+    return {r["id"]: group_of(r["id"], r["name"]) for r in rows}
 
 
 def pull_ads(today, full_listing, ghl=None):
     """Ad-level totals since START, every ad's format, and small previews of the likely winners."""
     base = f"https://graph.facebook.com/v21.0/{ACCOUNT}"
-    def _ad_insights_params(filtering):
-        return {"level": "ad", "fields": "ad_id,ad_name,campaign_name,spend,actions",
-                "time_range": json.dumps({"since": START, "until": today}),
-                "filtering": json.dumps(filtering), "limit": "500", "access_token": token()}
     def _parse_ad(r):
         acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
+        # cid, not the campaign name: five campaigns shared one name on 2026-09-22, and crediting
+        # leads by name put all of their opt-ins on whichever one was read last.
         return {"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"],
-                "spend": float(r["spend"]), "link_clicks": acts.get("link_click", 0.0),
-                "leads": acts.get("lead", 0.0)}
-    ads = [_parse_ad(r) for r in paged(f"{base}/insights",
-           _ad_insights_params([{"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}]))]
-    if _extra_campaign_filter():
-        ads += [_parse_ad(r) for r in paged(f"{base}/insights",
-                _ad_insights_params(_extra_campaign_filter()))]
+                "cid": r["campaign_id"], "spend": float(r["spend"]),
+                "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)}
+    ads = [_parse_ad(r) for r in paged(f"{base}/insights", {
+        "level": "ad", "fields": "ad_id,ad_name,campaign_id,campaign_name,spend,actions",
+        "time_range": json.dumps({"since": START, "until": today}),
+        "limit": "500", "access_token": token()})]
+    ads = [a for a in ads if a["cid"] not in EXCLUDED_CAMPAIGNS]
     ad_days = pull_ad_days(today)
 
     # Format for every ad in these campaigns, not just the ones that have spent, so a live
@@ -325,20 +345,13 @@ def pull_ads(today, full_listing, ghl=None):
     # September 2025 ad in the account.
     ad_statuses = ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "ARCHIVED", "PENDING_REVIEW",
                    "IN_PROCESS", "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED"]
-    for group_name in ("September 2026 Lead Magnet", "September DTC") if full_listing else ():
+    cids = sorted({a["cid"] for a in ads})
+    for i in range(0, len(cids), 20) if full_listing else ():
         listing += paged(f"{base}/ads", {
             "fields": "id," + CREATIVE_FIELDS,
-            "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": group_name},
+            "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": cids[i:i + 20]},
                                      {"field": "ad.effective_status", "operator": "IN", "value": ad_statuses}]),
             "limit": "50",  # 100 per page trips Meta's "reduce the amount of data" on page two
-            "access_token": token(),
-        })
-    for cid in (EXTRA_CAMPAIGNS if full_listing else ()):
-        listing += paged(f"{base}/ads", {
-            "fields": "id," + CREATIVE_FIELDS,
-            "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": [cid]},
-                                     {"field": "ad.effective_status", "operator": "IN", "value": ad_statuses}]),
-            "limit": "50",
             "access_token": token(),
         })
     def keep(ad):
@@ -415,7 +428,7 @@ def pull_ads(today, full_listing, ghl=None):
             tally = {}
             for a in ads:
                 c = creatives.get(a["id"])
-                if group_of(a["campaign"]) != g or not c or c["f"] != f or c["h"] in RETIRED_HASHES:
+                if group_of(a["cid"], a["campaign"]) != g or not c or c["f"] != f or c["h"] in RETIRED_HASHES:
                     continue
                 t = tally.setdefault(creative_key(c) or "a:" + a["id"], {"leads": 0.0, "spend": 0.0, "clicks": 0.0, "top": a})
                 t["leads"] += src["ads"].get(a["id"], 0) if src else a["leads"] * factor
@@ -513,7 +526,7 @@ def pull_hyros(today, rows):
         print("warning: no Hyros key (HYROS_API_KEY or the PBI key file); the page falls back to "
               "Meta's Lead event", file=sys.stderr)
         return None
-    ids = sorted({r["id"] for r in rows if group_of(r["name"]) == HYROS_GROUP})
+    ids = sorted({r["id"] for r in rows if group_of(r["id"], r["name"]) == HYROS_GROUP})
     if not ids:
         return None
     base = {
@@ -688,21 +701,25 @@ def pull_ghl(today):
 
 
 def credit_campaigns(ghl, ads, rows):
-    """Put each GHL opt-in's ad into its campaign; anything else is counted as unattributed."""
-    camp_of_ad = {a["id"]: a["campaign"] for a in ads}
-    id_of_name = {r["name"]: r["id"] for r in rows}
+    """Put each GHL opt-in's ad into its campaign; anything else is counted as unattributed.
+
+    Keyed by campaign id throughout. Campaign names are not unique: on 2026-09-22 five campaigns
+    were called "TOF | September DTC V12 | B-Roll + Skits - Full Sweep", and a name-keyed lookup
+    handed every one of their opt-ins to whichever id happened to be read last.
+    """
+    camp_of_ad = {a["id"]: a["cid"] for a in ads}
+    group_of_cid = groups_of(rows)
     for g, src in ghl.items():
         # Every campaign of the group gets a row, zero included, for the same reason as the zero days.
-        src["campaigns"] = {r["id"]: 0 for r in rows if group_of(r["name"]) == g}
+        src["campaigns"] = {cid: 0 for cid, grp in group_of_cid.items() if grp == g}
         src["no_ad"], kept = 0, {}
         for ad, n in src.pop("ads").items():
-            name = camp_of_ad.get(ad)
-            if name and group_of(name) == g and name in id_of_name:
-                cid = id_of_name[name]
+            cid = camp_of_ad.get(ad)
+            if cid and group_of_cid.get(cid) == g:
                 src["campaigns"][cid] = src["campaigns"].get(cid, 0) + n
                 kept[ad] = n
             else:
-                src["no_ad"] += n  # no ad id, or an ad from the other group's campaigns
+                src["no_ad"] += n  # no ad id, or an ad from outside this group's campaigns
         src["ads"] = kept
     return ghl
 
@@ -725,25 +742,15 @@ def pull_ad_days(today):
         "level": "ad",
         # inline_link_clicks matched the link_click action ad for ad on 2026-09-17 and is far
         # cheaper to read than the whole actions array.
-        "fields": "ad_id,spend,inline_link_clicks",
+        "fields": "ad_id,campaign_id,spend,inline_link_clicks",
         "time_range": json.dumps({"since": since, "until": today}),
         "time_increment": "1",
-        "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}]),
         "limit": "500",
         "access_token": token(),
     }):
+        if r.get("campaign_id") in EXCLUDED_CAMPAIGNS:
+            continue
         rows.append((r["ad_id"], r["date_start"], float(r.get("inline_link_clicks") or 0), float(r["spend"])))
-    if _extra_campaign_filter():
-        for r in paged(f"https://graph.facebook.com/v21.0/{ACCOUNT}/insights", {
-            "level": "ad",
-            "fields": "ad_id,spend,inline_link_clicks",
-            "time_range": json.dumps({"since": since, "until": today}),
-            "time_increment": "1",
-            "filtering": json.dumps(_extra_campaign_filter()),
-            "limit": "500",
-            "access_token": token(),
-        }):
-            rows.append((r["ad_id"], r["date_start"], float(r.get("inline_link_clicks") or 0), float(r["spend"])))
     return since, rows
 
 
@@ -789,7 +796,6 @@ def pull(full_listing=True):
         "fields": "campaign_id,campaign_name,spend,actions,action_values",
         "time_range": json.dumps({"since": START, "until": today}),
         "time_increment": "1",
-        "filtering": json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": NAME_FILTER}]),
         "limit": "500",
         "access_token": token(),
     }
@@ -799,6 +805,8 @@ def pull(full_listing=True):
     while url:
         data = graph(url, params)
         for r in data["data"]:
+            if r["campaign_id"] in EXCLUDED_CAMPAIGNS:
+                continue
             acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
             vals = {a["action_type"]: float(a["value"]) for a in r.get("action_values", [])}
             rows.append({
@@ -816,30 +824,6 @@ def pull(full_listing=True):
             })
         url = data.get("paging", {}).get("next")
         params = {}  # the next URL carries every parameter
-    # Campaigns not matched by NAME_FILTER (see EXTRA_CAMPAIGNS)
-    if EXTRA_CAMPAIGNS:
-        for r in paged(insights_url, {
-            "level": "campaign",
-            "fields": "campaign_id,campaign_name,spend,actions,action_values",
-            "time_range": json.dumps({"since": START, "until": today}),
-            "time_increment": "1",
-            "filtering": json.dumps([{"field": "campaign.id", "operator": "IN",
-                                      "value": list(EXTRA_CAMPAIGNS)}]),
-            "limit": "500",
-            "access_token": token(),
-        }):
-            acts = {a["action_type"]: float(a["value"]) for a in r.get("actions", [])}
-            vals = {a["action_type"]: float(a["value"]) for a in r.get("action_values", [])}
-            rows.append({
-                "date": r["date_start"],
-                "id": r["campaign_id"],
-                "name": r["campaign_name"],
-                "spend": float(r["spend"]),
-                "link_clicks": acts.get("link_click", 0.0),
-                "leads": acts.get("lead", 0.0),
-                "purchases": acts.get("offsite_conversion.fb_pixel_purchase", 0.0),
-                "revenue": vals.get("offsite_conversion.fb_pixel_purchase", 0.0),
-            })
     # Leads: GHL's own opt-ins for both groups. If the GHL read fails, DTC falls back to Hyros and the
     # Lead Magnet to Meta scaled to GHL, so the page never goes blank.
     ghl = pull_ghl(today)
@@ -853,13 +837,18 @@ def pull(full_listing=True):
             "ads": ads, "creatives": creatives, "thumbs": thumbs, "hyros": hyros,
             "leadsrc": ghl or ({HYROS_GROUP: hyros} if hyros else None),
             "url_days": url_days, "url_pulled_from": since,
-            "extraGroups": {name: g for g, name in EXTRA_CAMPAIGNS.values()}}
+            # The page groups by campaign id off this map and never re-derives one from a name.
+            "groups": groups_of(rows), "excluded": EXCLUDED_CAMPAIGNS}
 
 
 DAILY_COLUMNS = [
     "Date", "Status", "Leads", "Spend ($)", "Link clicks", "Conv. rate (%)", "Cost per lead ($)",
     "Cost per link click ($)", "Purchases (Meta pixel)", "Revenue (Meta pixel, $)", "ROAS (Meta pixel)",
     "Lead Magnet leads", "DTC leads", "Lead Magnet spend ($)", "DTC spend ($)", "Meta Lead event", "Leads source",
+    # Spend on a campaign that matched no group rule. It is inside Spend and outside the two group
+    # columns, so it is the one cell that shows Lead Magnet + DTC failing to add up to the total.
+    # Normally 0: a figure here means a campaign needs a line in CAMPAIGN_GROUP.
+    "Unclassified spend ($)",
 ]
 
 
@@ -883,20 +872,24 @@ def daily_csv(snap):
         return sum(r["leads"] for r in rows) * LEAD_FACTOR.get(g, 1), f"Meta x {round(LEAD_FACTOR.get(g, 1) * 100)}%"
 
     def line(label, status, rows, day_list):
-        t = {"spend": 0.0, "clicks": 0.0, "purchases": 0.0, "revenue": 0.0, "meta": 0.0}
+        t = {"spend": 0.0, "clicks": 0.0, "purchases": 0.0, "revenue": 0.0, "meta": 0.0, "other": 0.0}
         by = {"lm": [0.0, 0.0], "dtc": [0.0, 0.0]}   # [leads, spend]
         how = set()
         for g in by:
-            grp = [r for r in rows if group_of(r["name"]) == g]
+            grp = [r for r in rows if group_of(r["id"], r["name"]) == g]
             by[g][1] = sum(r["spend"] for r in grp)
             for day in day_list:
                 n, h = leads(g, day, [r for r in grp if r["date"] == day])
                 by[g][0] += n
                 how.add(("Lead Magnet" if g == "lm" else "DTC") + ": " + h)
         for r in rows:
-            if group_of(r["name"]):
-                t["spend"] += r["spend"]; t["clicks"] += r["link_clicks"]; t["meta"] += r["leads"]
-                t["purchases"] += r.get("purchases", 0.0); t["revenue"] += r.get("revenue", 0.0)
+            g = group_of(r["id"], r["name"])
+            if not g:
+                continue
+            t["spend"] += r["spend"]; t["clicks"] += r["link_clicks"]; t["meta"] += r["leads"]
+            t["purchases"] += r.get("purchases", 0.0); t["revenue"] += r.get("revenue", 0.0)
+            if g == "other":
+                t["other"] += r["spend"]
         lm, dtc = round(by["lm"][0]), round(by["dtc"][0])
         total = lm + dtc
         return [label, status, total, f"{t['spend']:.2f}", round(t["clicks"]),
@@ -906,7 +899,7 @@ def daily_csv(snap):
                 round(t["purchases"]), f"{t['revenue']:.2f}",
                 f"{t['revenue'] / t['spend']:.2f}" if t["spend"] else "",
                 lm, dtc, f"{by['lm'][1]:.2f}", f"{by['dtc'][1]:.2f}", round(t["meta"]),
-                "; ".join(sorted(how))]
+                "; ".join(sorted(how)), f"{t['other']:.2f}"]
 
     days = sorted({r["date"] for r in snap["rows"] if START <= r["date"] <= today} | {today})
     out = io.StringIO()
@@ -927,6 +920,35 @@ def build(snapshot):
     if re.search(r"\{\{[A-Z]+\}\}", html):
         sys.exit("dashboard.src.html has an unfilled placeholder")
     return html
+
+
+def report_scope(snap):
+    """Print what the report covers, and warn about anything it could not place.
+
+    The whole account is read now, so the only spend that can leave the page is a campaign in
+    EXCLUDED_CAMPAIGNS, and the only spend that can miss a group is "other" - which still counts in
+    the combined totals. Both are printed every pull so neither goes unnoticed the way the
+    name-filtered pull let $804 go unnoticed on 2026-09-22.
+    """
+    groups, by_cid, names = snap.get("groups") or {}, {}, {}
+    for r in snap["rows"]:
+        by_cid[r["id"]] = by_cid.get(r["id"], 0.0) + r["spend"]
+        names[r["id"]] = r["name"]
+    per = {}
+    for cid, total in by_cid.items():
+        g = groups.get(cid) or "other"
+        per[g] = per.get(g, 0.0) + total
+    print("in scope: " + ", ".join(f"{g} ${per[g]:,.2f}" for g in sorted(per))
+          + f" over {len(by_cid)} campaigns")
+    for cid, name in EXCLUDED_CAMPAIGNS.items():
+        print(f"left out on purpose: {name} ({cid})")
+    other = sorted(((by_cid[c], c, names[c]) for c, g in groups.items() if g == "other"), reverse=True)
+    if other:
+        print(f"warning: {len(other)} campaign(s) match no group rule (${sum(o[0] for o in other):,.2f}). "
+              "They count in the combined totals and show under \"Other campaigns\", but not in Lead "
+              "Magnet or DTC. Give each one a line in CAMPAIGN_GROUP or EXCLUDED_CAMPAIGNS:", file=sys.stderr)
+        for total, cid, name in other:
+            print(f"  {cid}  ${total:,.2f}  {name}", file=sys.stderr)
 
 
 def main():
@@ -958,6 +980,7 @@ def main():
     spend = sum(r["spend"] for r in snap["rows"])
     leads = sum(r["leads"] for r in snap["rows"])
     print(f"{len(snap['rows'])} campaign-day rows, ${spend:,.2f} spent, {leads:.0f} Meta leads, pulled {snap['pulled_at']}")
+    report_scope(snap)
     print(f"{len(snap['ads'])} ads with delivery, {len(snap['creatives'])} ads mapped to a format, {len(snap['thumbs'])} previews baked")
     spent = [snap["creatives"][a["id"]] for a in snap["ads"] if a["spend"] > 0 and a["id"] in snap["creatives"]]
     print(f"{len({creative_key(c) for c in spent if creative_key(c)})} distinct creatives behind {len(spent)} spending ads; "

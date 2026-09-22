@@ -373,7 +373,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       <li><b>Leads</b> are counted per group as set out below. <b>Meta leads</b> is Meta's Lead standard event from the funnel pixel, as Meta attributes it under each ad set's attribution setting, shown unscaled for comparison. <b>Cost per lead</b> is spend divided by leads, against this campaign's $20 cost-per-lead target (set 2026-09-19; PBI's standing cold target is $15).</li>
       <li><b>Link clicks</b> only, never all clicks. <b>Cost per click</b> is spend divided by link clicks; <b>conv. rate</b> is leads divided by link clicks.</li>
       <li><b>Days</b> run midnight to midnight Central, the ad account's clock. The newest day is partial, and Meta keeps adding a day's conversions for a few hours after it closes, so early figures run low.</li>
-      <li><b>Lead Magnet</b> is every campaign named "September 2026 Lead Magnet" or "September 2026 ... LM Retargeting", plus any campaign listed in the snapshot's <code>extraGroups</code> map as "lm"; <b>DTC</b> is every campaign named "September DTC". Matching by name picks up a relaunched or duplicated campaign without editing this page, and a paused campaign keeps what it already spent.</li>
+      <li><b>Every campaign delivering in the JOM4 ad account since Sep 17 is counted</b>, one exception aside: the MOF VIP campaign, which sells the $17 upsell to people who have already registered, is left out on purpose (Phil, Sep 22). Campaigns are sorted into <b>Lead Magnet</b> and <b>DTC</b> by campaign ID, so renaming or duplicating one in Meta changes nothing and a paused campaign keeps what it already spent. Anything that fits neither lands under <b>Other campaigns</b> in the table below: its spend and clicks still count in the combined totals, and its registrants are already inside them, because GHL counts a person once for the whole funnel whichever campaign sent them.</li>
       <li id="method-leads"></li>
       <li><b>Best creative</b> is a running tally per creative since Sep 17, the first day these campaigns ran, not a view of today. The same image or video often runs under several ads (rebuilt campaigns, duplicated ad sets, replacement ads), so every ad that used it is added up, matched on Meta's image hash or video id, including ads that have since been paused or replaced; <b>Ads</b> on each card says how many. The top 10 images and top 10 videos are shown for each group, among creatives with at least $20 spent in total: most leads first, then the lower cost per lead, then the higher spend. The name and preview are the creative's highest-spending ad. Where leads are Meta's count scaled to GHL they keep their decimals, since rounding one ad down would erase ads with a single lead. When fewer than ten creatives in a block have leads, the rest are filled by link clicks. <b>Thin data</b> marks a creative under $25 spent or 20 link clicks, where one lead swings the cost a long way.</li>
       <li><b>Landing pages</b> splits the same numbers by the page each ad sends people to, taken from the ad's own link. One ad set can point its ads at several pages, so the split is made ad by ad, and the query string (the tracking tags) is ignored. The day grid is from the last pull, not the live read, and keeps every day since Sep 17: each pull re-reads the last week from Meta and carries the older days forward.</li>
@@ -413,16 +413,43 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     conversationId: "PbiJom4ChallengeDsh1",
     refetchMs: 5 * 60 * 1000
   };
-  var GROUPS = { all: "All campaigns", lm: "Lead Magnet", dtc: "DTC" };
+  var GROUPS = { all: "All campaigns", lm: "Lead Magnet", dtc: "DTC", other: "Other campaigns" };
   var HOSTED = /\.github\.io$/.test(location.hostname);
 
-  function groupOf(name) {
-    var ex = SNAP.extraGroups;
-    if (ex && ex[name]) return ex[name];
-    if (/lead magnet/i.test(name) && /september 2026/i.test(name)) return "lm";
-    if (/lm retargeting/i.test(name) && /september 2026/i.test(name)) return "lm";
-    if (/september dtc/i.test(name)) return "dtc";
+  // Grouping is by campaign ID, off the map the pull bakes in (SNAP.groups, refresh.py group_of).
+  // Names are neither stable nor unique - five campaigns shared one name on 2026-09-22 - so a name
+  // is only consulted for a campaign created since the last pull, which a live read can see first.
+  // A campaign that fits no rule is "other", never nothing: its spend and clicks stay in the
+  // combined totals and it keeps its own row, so nothing drops out of the report unseen.
+  var GROUP_BY_ID = {}, GROUP_BY_NAME = {}, EXCLUDED = {}, EXCLUDED_NAMES = {};
+
+  function nameGroup(name) {
+    var n = String(name || "");
+    if (/lead magnet/i.test(n) && /september 2026/i.test(n)) return "lm";
+    if (/lm retargeting/i.test(n) && /september 2026/i.test(n)) return "lm";
+    if (/september dtc/i.test(n)) return "dtc";
     return null;
+  }
+  function groupOf(r) {
+    var id = r && r.id;
+    if (id && EXCLUDED[id]) return null;   // left out of the report on purpose
+    if (id && GROUP_BY_ID[id]) return GROUP_BY_ID[id];
+    return nameGroup(r && r.name) || "other";
+  }
+  // An ad from the pull carries its campaign id; a live ad read has only the campaign name, so it
+  // goes through the names learned from the campaign rows of the same read.
+  function groupOfAd(a) {
+    if (a.cid) return groupOf({ id: a.cid, name: a.campaign });
+    if (EXCLUDED_NAMES[a.campaign]) return null;
+    return GROUP_BY_NAME[a.campaign] || nameGroup(a.campaign) || "other";
+  }
+  function learnNames(rows) {
+    rows.forEach(function (r) { var g = groupOf(r); if (r.name && g) GROUP_BY_NAME[r.name] = g; });
+  }
+  function otherCampaigns(rows) {
+    var seen = {};
+    rows.forEach(function (r) { if (groupOf(r) === "other") seen[r.name] = 1; });
+    return Object.keys(seen);
   }
 
   // ---------- formatting ----------
@@ -455,6 +482,10 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
 
   // ---------- data ----------
   var SNAP = JSON.parse(document.getElementById("snapshot").textContent);
+  GROUP_BY_ID = SNAP.groups || {};
+  EXCLUDED = SNAP.excluded || {};
+  Object.keys(EXCLUDED).forEach(function (id) { EXCLUDED_NAMES[EXCLUDED[id]] = 1; });
+  learnNames(SNAP.rows || []);
   function snapshotState() {
     var ms = Date.parse(SNAP.pulled_at);
     var through = new Intl.DateTimeFormat("en-CA", { timeZone: CFG.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
@@ -480,7 +511,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   var group = "all";
   try { var saved = localStorage.getItem("jom4-challenge-tab"); if (saved && GROUPS[saved]) group = saved; } catch (e) {}
 
-  function inGroup(r, key) { var g = groupOf(r.name); return g && (key === "all" || g === key); }
+  function inGroup(r, key) { var g = groupOf(r); return !!g && (key === "all" || g === key); }
   function derive(t) {
     t.leads = Math.round(t.leads); // whole leads: Meta's 352 Lead Magnet reads back as GHL's 186
     t.cpl = t.leads ? t.spend / t.leads : null;
@@ -490,7 +521,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   }
   // Meta over-counts both groups against GHL, by different amounts (CFG.leadCal). An unrecognised
   // campaign keeps Meta's number rather than being silently scaled by someone else's ratio.
-  function leadFactor(name) { return factorFor(groupOf(name)); }
+  function leadFactorAd(a) { return factorFor(groupOfAd(a)); }
   function factorFor(key) { var c = CFG.leadCal[key]; return c && c.meta > 0 ? c.actual / c.meta : 1; }
   function factorPct(key) { return Math.round(factorFor(key) * 100) + "%"; }
   function calBasis(key) {
@@ -519,7 +550,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   function sourced(key) { return !!SRC[key]; }
   function isGhl(key) { return !!(SRC[key] && SRC[key].source === "GHL"); }
   function label(key) { return SRC[key].label || "GHL opt-ins"; }
-  function ghlAd(a) { var g = groupOf(a.campaign); return isGhl(g) ? (SRC[g].ads || {})[a.id] || 0 : null; }
+  function ghlAd(a) { var g = groupOfAd(a); return isGhl(g) ? (SRC[g].ads || {})[a.id] || 0 : null; }
   function sourcedLeads(key, keys, byCampaign) {
     var src = byCampaign ? SRC[key].campaigns : SRC[key].days, n = 0, seen = false;
     Object.keys(keys).forEach(function (k) { if (src && src[k] != null) { n += src[k]; seen = true; } });
@@ -528,12 +559,16 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   function sum(rows, byCampaign) {
     var t = { spend: 0, leads: 0, metaLeads: 0, clicks: 0, campaigns: {}, src: {} };
     rows.forEach(function (r) {
-      var g = groupOf(r.name);
+      var g = groupOf(r);
       t.spend += r.spend; t.clicks += r.link_clicks; t.metaLeads += r.leads;
-      if (sourced(g)) {
+      // "other" adds no leads of its own. GHL counts a person once for the whole group, whichever
+      // campaign sent them, so an unclassified campaign's opt-ins are already inside the Lead
+      // Magnet and DTC day totals; adding Meta's count for it would count them twice.
+      if (g === "other") t.other = (t.other || 0) + r.spend;
+      else if (sourced(g)) {
         var s = t.src[g] = t.src[g] || { days: {}, camps: {}, meta: 0 };
         s.days[r.date] = 1; s.camps[r.id] = 1; s.meta += r.leads;
-      } else t.leads += r.leads * leadFactor(r.name);
+      } else t.leads += r.leads * leadFactorAd({ campaign: r.name, cid: r.id });
       if (r.spend > 0) t.campaigns[r.id] = 1;
     });
     // No count from the pull for this scope (a day the live read has and the pull has not): Meta's
@@ -699,18 +734,27 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       return GROUPS[g] + " rows are " + label(g) + " credited by the Meta ad id in the opt-in's link" +
         (S.no_ad ? " (" + fInt(S.no_ad) + " without one count only in the total)" : "");
     });
-    document.getElementById("camp-note").textContent = ["So far, by campaign"].concat(parts).join(" · ");
     var byId = {};
     state.rows.forEach(function (r) {
       if (!inGroup(r, "all") || r.date < CFG.start || r.date > state.through) return;
       (byId[r.id] = byId[r.id] || { name: r.name, rows: [] }).rows.push(r);
     });
+    var stray = otherCampaigns(state.rows.filter(function (r) { return inGroup(r, "all"); }));
+    if (stray.length) parts.push(fInt(stray.length) + " campaign" + (stray.length === 1 ? "" : "s") +
+      " fit neither group and sit under Other: their spend is in the combined total, their leads are" +
+      " already inside it, and they are not in the Lead Magnet or DTC figures");
+    document.getElementById("camp-note").textContent = ["So far, by campaign"].concat(parts).join(" · ");
     var tbody = document.querySelector("#camp-table tbody");
     tbody.textContent = "";
-    ["lm", "dtc"].forEach(function (g) {
-      var list = Object.keys(byId).map(function (id) { var c = byId[id]; var t = sum(c.rows, true); t.name = c.name; return t; })
-        .filter(function (t) { return groupOf(t.name) === g; })
+    var all = Object.keys(byId).map(function (id) {
+      var c = byId[id], t = sum(c.rows, true);
+      t.name = c.name; t.group = groupOf({ id: id, name: c.name });
+      return t;
+    });
+    ["lm", "dtc", "other"].forEach(function (g) {
+      var list = all.filter(function (t) { return t.group === g; })
         .sort(function (a, b) { return b.spend - a.spend; });
+      if (g === "other" && !list.length) return;   // the normal case: nothing unclassified
       var hr = el("tr"), hd = el("td", "group-label", GROUPS[g]);
       hd.colSpan = 8; hr.appendChild(hd); tbody.appendChild(hr);
       if (!list.length) { var er = el("tr"), ed = el("td", "empty", "No delivery yet"); ed.colSpan = 8; er.appendChild(ed); tbody.appendChild(er); }
@@ -727,13 +771,13 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   function pageRows() {
     var by = {};
     adState.ads.forEach(function (a) {
-      var g = groupOf(a.campaign);
-      if (!g) return;
+      var g = groupOfAd(a);
+      if (g !== "lm" && g !== "dtc") return;
       var page = (CREATIVES[a.id] || {}).u || "?";
       var t = by[g + " " + page] = by[g + " " + page] || { group: g, page: page, spend: 0, leads: 0, metaLeads: 0, clicks: 0 };
       t.spend += a.spend; t.clicks += a.link_clicks;
       var own = ghlAd(a);
-      t.metaLeads += a.leads; t.leads += own != null ? own : a.leads * leadFactor(a.campaign);
+      t.metaLeads += a.leads; t.leads += own != null ? own : a.leads * leadFactorAd(a);
     });
     return Object.keys(by).map(function (k) { return derive(by[k]); })
       .filter(function (t) { return t.spend > 0 || t.clicks > 0; });
@@ -838,7 +882,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   var FORMATS = [["image", "Images"], ["video", "Videos"]];
 
   function adMetrics(a) {
-    var own = ghlAd(a), leads = own != null ? own : a.leads * leadFactor(a.campaign);
+    var own = ghlAd(a), leads = own != null ? own : a.leads * leadFactorAd(a);
     return {
       ad: a, leads: leads, spend: a.spend, clicks: a.link_clicks,
       cpl: leads ? a.spend / leads : null,
@@ -860,7 +904,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     var by = {};
     adState.ads.forEach(function (a) {
       var c = CREATIVES[a.id];
-      if (groupOf(a.campaign) !== g || !c || c.f !== f || CFG.retiredHashes.indexOf(c.h) >= 0) return;
+      if (groupOfAd(a) !== g || !c || c.f !== f || CFG.retiredHashes.indexOf(c.h) >= 0) return;
       var k = creativeKey(c, a.id), t = by[k] = by[k] || { ads: [], leads: 0, spend: 0, clicks: 0, campaigns: {} };
       t.ads.push(a); t.leads += adMetrics(a).leads; t.spend += a.spend; t.clicks += a.link_clicks; t.campaigns[a.campaign] = 1;
     });
@@ -1051,7 +1095,9 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
       ad_account_id: CFG.account,
       level: kind === "ads" ? "ad" : "campaign",
       fields: kind === "ads" ? ["id", "name", "campaign_name", "amount_spent", "link_click", "lead"] : ["id", "name", "amount_spent", "link_click", "lead"],
-      filtering: [{ field: "campaign.name", operator: "CONTAIN", value: ["September"] }],
+      // No filtering: the live read takes the whole account and the grouping decides what counts,
+      // exactly as the pull does. Filtering on the campaign name here is what hid two campaigns
+      // launched without "September" in their name.
       time_range: JSON.stringify({ since: CFG.start, until: until }),
       limit: 1000,
       include_additional_context: false,
@@ -1105,6 +1151,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
         adState = { ads: rows.filter(function (r) { return r.spend > 0; }), source: "live", asOf: asOf };
         renderBest(); renderPages();
       } else {
+        learnNames(rows);   // live ad rows carry a campaign name but no id
         state = { rows: rows, source: "live", asOf: asOf, through: until };
         render();
         setStatus(result.cache && result.cache.revalidating ? "loading" : "live");
