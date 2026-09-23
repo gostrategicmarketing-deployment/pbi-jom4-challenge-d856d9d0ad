@@ -6,7 +6,8 @@ broken out by landing page.
 
 Scope is **every campaign delivering in the JOM4 account since the start date, minus an explicit
 exclusion list**: `EXCLUDED_CAMPAIGNS` in `refresh.py` is the only way spend leaves the report
-(currently just the $17 MOF VIP upsell), and `CAMPAIGN_GROUP` puts a campaign in a group its name
+(currently the $17 MOF VIP upsell and the MOF Group ask, both downstream steps for people already
+registered), and `CAMPAIGN_GROUP` puts a campaign in a group its name
 does not announce. Both are keyed by campaign **id**, so renaming a campaign in Meta changes
 nothing. A campaign matching no group rule lands in "other": its spend and clicks count in the
 combined totals and it gets its own row, the pull warns about it with its id, and `daily.csv`

@@ -52,6 +52,9 @@ EXCLUDED_CAMPAIGNS = {
     # source, and its spend against challenge leads would read as a worse cost per lead than it is.
     # Phil, 2026-09-22: "MOF VIP should not count. But everything else should".
     "120251185599730642": "MOF | September 2026 | VIP",
+    # The FB-Group-ask campaign: a downstream step for people already registered, not a challenge
+    # lead source. Phil, 2026-09-23: exclude it like MOF VIP.
+    "120251208389810642": "MOF | September 2026 | Group",
 }
 CAMPAIGN_GROUP = {
     "120251163829380642": "lm",   # TOF | LM Untested Statics | CBO | start 9-21
@@ -59,6 +62,7 @@ CAMPAIGN_GROUP = {
     "120251165123780642": "dtc",  # TOF | DTC Ad #79 Carousel | CBO | 9-21 - Copy -> /newclients1
     "120251185727520642": "dtc",  # TOF | September 2026 Warm Audience -> /newclients, GHL funnel FB Ads 6
     "120251185754800642": "dtc",  # MOF | September 2026 Retargeting Viewers -> /newclients1
+    "120251202717680642": "dtc",  # MOF | September 2026 Retargeting Viewers - Copy (dup of the above)
 }
 # (Meta count, GHL count) per group, mirrors CFG.leadCal; here it only decides which previews to bake
 LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
