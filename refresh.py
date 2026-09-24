@@ -58,6 +58,7 @@ EXCLUDED_CAMPAIGNS = {
 }
 CAMPAIGN_GROUP = {
     "120251163829380642": "lm",   # TOF | LM Untested Statics | CBO | start 9-21
+    "120251208070110642": "lm",   # TOF | LM 9-22 New Statics | CBO | start 9-23 (9-21's successor; name says "LM" not "lead magnet" so the name rule misses it)
     "120251163862490642": "dtc",  # TOF | DTC Untested Grids | CBO | start 9-21 -> /newclients1
     "120251165123780642": "dtc",  # TOF | DTC Ad #79 Carousel | CBO | 9-21 - Copy -> /newclients1
     "120251185727520642": "dtc",  # TOF | September 2026 Warm Audience -> /newclients, GHL funnel FB Ads 6
