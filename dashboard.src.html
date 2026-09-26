@@ -427,7 +427,7 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
     var n = String(name || "");
     if (/lead magnet/i.test(n) && /september 2026/i.test(n)) return "lm";
     if (/lm retargeting/i.test(n) && /september 2026/i.test(n)) return "lm";
-    if (/september dtc/i.test(n)) return "dtc";
+    if (/september (2026 )?dtc/i.test(n)) return "dtc";
     return null;
   }
   function groupOf(r) {
@@ -530,12 +530,20 @@ td.name { white-space: normal; min-width: 260px; text-align: left; }
   }
   function sourceNote(key, t) {
     var S = SRC[key];
-    if (isGhl(key)) return "Leads are " + label(key) + ", one per person, pulled " + timeCT(Date.parse(S.pulled_at)) +
+    if (isGhl(key)) return "Leads are " + label(key) + ", one per person" + formNote(key, t) + ", pulled " + timeCT(Date.parse(S.pulled_at)) +
       ". Meta's Lead event counts " + fInt(t.metaLeads) + ".";
     var c = CFG.leadCal[key];
     return "Leads are Hyros, " + S.model + ", pulled " + timeCT(Date.parse(S.pulled_at)) +
       (S.stale ? " (its last good read: spend has moved on since)" : "") + ". Meta's Lead event counts " +
       fInt(t.metaLeads) + (c ? "; GHL counted " + fInt(c.actual) + " against Meta's " + fInt(c.meta) + " on " + dayLabel(c.asOf) : "") + ".";
+  }
+  // Meta instant-form leads the pull added to the GHL count (they never reach a funnel page), over
+  // the days this card sums, so the card shows the two halves it is made of.
+  function formNote(key, t) {
+    var f = SRC[key] && SRC[key].form, days = t && t.src && t.src[key] ? t.src[key].days : {}, n = 0;
+    if (!f) return "";
+    Object.keys(days).forEach(function (d) { n += f.days[d] || 0; });
+    return n ? ", plus " + fInt(n) + " Meta instant-form lead" + (n === 1 ? "" : "s") : "";
   }
   function sourceOf(key) {
     return isGhl(key) ? GROUPS[key] + " from " + label(key)

@@ -55,6 +55,9 @@ EXCLUDED_CAMPAIGNS = {
     # The FB-Group-ask campaign: a downstream step for people already registered, not a challenge
     # lead source. Phil, 2026-09-23: exclude it like MOF VIP.
     "120251208389810642": "MOF | September 2026 | Group",
+    # Attendance reminders to people already registered, launched 2026-09-26: a downstream step like
+    # VIP and Group, not a challenge lead source.
+    "120251264640210642": "MOF | September 2026 | Reminder",
 }
 CAMPAIGN_GROUP = {
     "120251163829380642": "lm",   # TOF | LM Untested Statics | CBO | start 9-21
@@ -64,7 +67,12 @@ CAMPAIGN_GROUP = {
     "120251185727520642": "dtc",  # TOF | September 2026 Warm Audience -> /newclients, GHL funnel FB Ads 6
     "120251185754800642": "dtc",  # MOF | September 2026 Retargeting Viewers -> /newclients1
     "120251202717680642": "dtc",  # MOF | September 2026 Retargeting Viewers - Copy (dup of the above)
+    "120251246118210642": "dtc",  # TOF | September 2026 DTC | Lead Form, start 9-26: Meta instant form, see FORM_LEAD
 }
+# A Meta instant-form lead never loads a funnel page, so GHL's opt-in count cannot see it. Every
+# campaign's instant-form leads are added to its group's GHL count by day, campaign and ad
+# (add_form_leads). The first instant-form campaign, 2026-09-26, read as $582 of DTC spend with no leads.
+FORM_LEAD = "onsite_conversion.lead_grouped"
 # (Meta count, GHL count) per group, mirrors CFG.leadCal; here it only decides which previews to bake
 LEAD_CAL = {"lm": (352, 186), "dtc": (179, 147)}   # calibrated 2026-09-17
 LEAD_FACTOR = {g: actual / meta for g, (meta, actual) in LEAD_CAL.items()}
@@ -314,7 +322,7 @@ def group_of(cid, name):
     n = (name or "").lower()
     if ("lead magnet" in n or "lm retargeting" in n) and "september 2026" in n:
         return "lm"
-    if "september dtc" in n:
+    if "september dtc" in n or "september 2026 dtc" in n:
         return "dtc"
     return "other"
 
@@ -333,7 +341,8 @@ def pull_ads(today, full_listing, ghl=None):
         # leads by name put all of their opt-ins on whichever one was read last.
         return {"id": r["ad_id"], "name": r["ad_name"], "campaign": r["campaign_name"],
                 "cid": r["campaign_id"], "spend": float(r["spend"]),
-                "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0)}
+                "link_clicks": acts.get("link_click", 0.0), "leads": acts.get("lead", 0.0),
+                "form_leads": acts.get(FORM_LEAD, 0.0)}
     ads = [_parse_ad(r) for r in paged(f"{base}/insights", {
         "level": "ad", "fields": "ad_id,ad_name,campaign_id,campaign_name,spend,actions",
         "time_range": json.dumps({"since": START, "until": today}),
@@ -729,6 +738,29 @@ def credit_campaigns(ghl, ads, rows):
     return ghl
 
 
+def add_form_leads(ghl, ads, rows):
+    """Add Meta's instant-form leads to each group's GHL count, by day, by campaign and by ad.
+
+    Nobody is counted twice: an instant-form lead submits on Meta and never reaches a GHL funnel form.
+    The group's `form` total lets the page print the two halves (GHL opt-ins + instant-form leads).
+    """
+    for r in rows:
+        src = ghl.get(group_of(r["id"], r["name"]))
+        n = r.get("form_leads", 0.0)
+        if not src or not n:
+            continue
+        src["days"][r["date"]] = src["days"].get(r["date"], 0) + n
+        src["campaigns"][r["id"]] = src["campaigns"].get(r["id"], 0) + n
+        form = src.setdefault("form", {"total": 0, "days": {}})
+        form["total"] += n
+        form["days"][r["date"]] = form["days"].get(r["date"], 0) + n
+    for a in ads:
+        src = ghl.get(group_of(a["cid"], a["campaign"]))
+        if src and a.get("form_leads"):
+            src["ads"][a["id"]] = src["ads"].get(a["id"], 0) + a["form_leads"]
+    return ghl
+
+
 def pull_ad_days(today):
     """Every ad's link clicks and spend day by day, over a trailing window.
 
@@ -821,6 +853,7 @@ def pull(full_listing=True):
                 "spend": float(r["spend"]),
                 "link_clicks": acts.get("link_click", 0.0),
                 "leads": acts.get("lead", 0.0),
+                "form_leads": acts.get(FORM_LEAD, 0.0),
                 # The funnels' paid step ($17 a purchase on day one) as the pixel reports it: Meta's
                 # number, labelled as such in daily.csv; GHL's orders need a payments scope the
                 # token does not have (401 on 2026-09-17).
@@ -836,6 +869,7 @@ def pull(full_listing=True):
     ads, creatives, thumbs, (since, ad_days) = pull_ads(today, full_listing, ghl)
     if ghl:
         credit_campaigns(ghl, ads, rows)
+        add_form_leads(ghl, ads, rows)
     url_days = sorted(published_url_days(since) + by_page(ad_days, creatives),
                       key=lambda t: (t["date"], t["page"]))
     return {"source": "snapshot", "pulled_at": datetime.now(TZ).isoformat(timespec="seconds"), "rows": rows,
